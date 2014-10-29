@@ -2817,6 +2817,7 @@ class WebInterface(object):
                     "ct_tag_cr" : helpers.checked(mylar.CT_TAG_CR),
                     "ct_tag_cbl" : helpers.checked(mylar.CT_TAG_CBL),
                     "ct_cbz_overwrite" : helpers.checked(mylar.CT_CBZ_OVERWRITE),
+                    "unrar_cmd" : mylar.UNRAR_CMD,
                     "failed_download_handling" : helpers.checked(mylar.FAILED_DOWNLOAD_HANDLING),
                     "failed_auto" : helpers.checked(mylar.FAILED_AUTO),
                     "branch" : version.MYLAR_VERSION,
@@ -3000,13 +3001,13 @@ class WebInterface(object):
         nzbget_host=None, nzbget_port=None, nzbget_username=None, nzbget_password=None, nzbget_category=None, nzbget_priority=None, nzbget_directory=None,
         usenet_retention=None, nzbsu=0, nzbsu_uid=None, nzbsu_apikey=None, dognzb=0, dognzb_uid=None, dognzb_apikey=None, newznab=0, newznab_host=None, newznab_name=None, newznab_apikey=None, newznab_uid=None, newznab_enabled=0,
         raw=0, raw_provider=None, raw_username=None, raw_password=None, raw_groups=None, experimental=0, check_folder=None, enable_check_folder=0, 
-        enable_meta=0, cmtagger_path=None, ct_tag_cr=0, ct_tag_cbl=0, ct_cbz_overwrite=0, enable_rss=0, rss_checkinterval=None, failed_download_handling=0, failed_auto=0, enable_torrent_search=0, enable_kat=0, enable_cbt=0, cbt_passkey=None, snatchedtorrent_notify=0,
+        enable_meta=0, cmtagger_path=None, ct_tag_cr=0, ct_tag_cbl=0, ct_cbz_overwrite=0, unrar_cmd=None, enable_rss=0, rss_checkinterval=None, failed_download_handling=0, failed_auto=0, enable_torrent_search=0, enable_kat=0, enable_cbt=0, cbt_passkey=None, snatchedtorrent_notify=0,
         enable_torrents=0, minseeds=0, torrent_local=0, local_watchdir=None, torrent_seedbox=0, seedbox_watchdir=None, seedbox_user=None, seedbox_pass=None, seedbox_host=None, seedbox_port=None,
         prowl_enabled=0, prowl_onsnatch=0, prowl_keys=None, prowl_priority=None, nma_enabled=0, nma_apikey=None, nma_priority=0, nma_onsnatch=0, pushover_enabled=0, pushover_onsnatch=0, pushover_apikey=None, pushover_userkey=None, pushover_priority=None, boxcar_enabled=0, boxcar_onsnatch=0, boxcar_token=None,
         pushbullet_enabled=0, pushbullet_apikey=None, pushbullet_deviceid=None, pushbullet_onsnatch=0,
         preferred_quality=0, move_files=0, rename_files=0, add_to_csv=1, cvinfo=0, lowercase_filenames=0, folder_format=None, file_format=None, enable_extra_scripts=0, extra_scripts=None, enable_pre_scripts=0, pre_scripts=None, post_processing=0, syno_fix=0, search_delay=None, chmod_dir=0777, chmod_file=0660, cvapifix=0,
         tsab=None, destination_dir=None, create_folders=1, replace_spaces=0, replace_char=None, use_minsize=0, minsize=None, use_maxsize=0, maxsize=None, autowant_all=0, autowant_upcoming=0, comic_cover_local=0, zero_level=0, zero_level_n=None, interface=None, **kwargs):
-        mylar.COMICVINE_API = comicvine_api.strip()
+        mylar.COMICVINE_API = comicvine_api
         mylar.HTTP_HOST = http_host
         mylar.HTTP_PORT = http_port
         mylar.HTTP_USERNAME = http_username
@@ -3133,6 +3134,7 @@ class WebInterface(object):
         mylar.CT_TAG_CR = ct_tag_cr
         mylar.CT_TAG_CBL = ct_tag_cbl
         mylar.CT_CBZ_OVERWRITE = ct_cbz_overwrite
+        mylar.UNRAR_CMD = unrar_cmd
         mylar.FAILED_DOWNLOAD_HANDLING = failed_download_handling
         mylar.FAILED_AUTO = failed_auto
         mylar.LOG_DIR = log_dir

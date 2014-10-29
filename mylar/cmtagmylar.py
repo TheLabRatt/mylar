@@ -28,6 +28,7 @@ def run (dirName, nzbName=None, issueid=None, manual=None, filename=None, module
     ## Set the directory in which comictagger and other external commands are located - IMPORTANT - ##
     # ( User may have to modify, depending on their setup, but these are some guesses for now )
 
+        
     if platform.system() == "Windows":
         #if it's a source install.
         if os.path.isdir(os.path.join(mylar.CMTAGGER_PATH, '.git')):
@@ -40,7 +41,10 @@ def run (dirName, nzbName=None, issueid=None, manual=None, filename=None, module
             else:
                 comictagger_cmd = os.path.join(mylar.CMTAGGER_PATH, 'comictagger.exe')
 
-        unrar_cmd = "C:\Program Files\WinRAR\UnRAR.exe"
+        if mylar.UNRAR_CMD == 'None' or mylar.UNRAR_CMD == '' or mylar.UNRAR_CMD is None:
+            unrar_cmd = "C:\Program Files\WinRAR\UnRAR.exe"
+        else:
+            unrar_cmd = mylar.UNRAR_CMD.strip()
 
       # test for UnRAR
         if not os.path.isfile(unrar_cmd):
@@ -50,17 +54,30 @@ def run (dirName, nzbName=None, issueid=None, manual=None, filename=None, module
                 logger.fdebug(module + ' Aborting meta-tagging.')
                 return "fail"
 
+        logger.fdebug(module + ' UNRAR path set to : ' + unrar_cmd)
+
     
     elif platform.system() == "Darwin":  #Mac OS X
         comictagger_cmd = os.path.join(mylar.CMTAGGER_PATH, 'comictagger.py')
-        unrar_cmd = "/usr/local/bin/unrar"
+        if mylar.UNRAR_CMD == 'None' or mylar.UNRAR_CMD == '' or mylar.UNRAR_CMD is None:
+            unrar_cmd = "/usr/local/bin/unrar"
+        else:
+            unrar_cmd = mylar.UNRAR_CMD.strip()
+
+        logger.fdebug(module + ' UNRAR path set to : ' + unrar_cmd)
     
     else:
         #for the 'nix
-        if 'freebsd' in platform.linux_distribution()[0].lower():
-            unrar_cmd = "/usr/local/bin/unrar"
+        if mylar.UNRAR_CMD == 'None' or mylar.UNRAR_CMD == '' or mylar.UNRAR_CMD is None:
+            if 'freebsd' in platform.linux_distribution()[0].lower():
+                unrar_cmd = "/usr/local/bin/unrar"
+            else:
+                unrar_cmd = "/usr/bin/unrar"
         else:
-            unrar_cmd = "/usr/bin/unrar"
+            unrar_cmd = mylar.UNRAR_CMD.strip()
+
+        logger.fdebug(module + ' UNRAR path set to : ' + unrar_cmd)
+
         #check for dependencies here - configparser
         try:
             import configparser
@@ -83,8 +100,9 @@ def run (dirName, nzbName=None, issueid=None, manual=None, filename=None, module
         logger.fdebug(module + ' WARNING:  cannot find the unrar command.')
         logger.fdebug(module + ' File conversion and extension fixing not available')
         logger.fdebug(module + ' You probably need to edit this script, or install the missing tool, or both!')
-        file_conversion = False
-        file_extension_fixing = False
+        return "fail"
+        #file_conversion = False
+        #file_extension_fixing = False
 
 
     ## Sets up other directories ##
@@ -192,7 +210,7 @@ def run (dirName, nzbName=None, issueid=None, manual=None, filename=None, module
 
                     if removetemp == True:
                         if comicpath != downloadpath:
-                            #shutil.rmtree( comicpath )
+                            shutil.rmtree( comicpath )
                             logger.fdebug(module + ' Successfully removed temporary directory: ' + comicpath)
                         else:
                             loggger.fdebug(module + ' Unable to remove temporary directory since it is identical to the download location : ' + comicpath)
@@ -266,7 +284,12 @@ def run (dirName, nzbName=None, issueid=None, manual=None, filename=None, module
     else:
         file_dir = re.sub(issueid, '', comicpath)
 
-    file_n = os.path.split(nfilename)[1]
+    try:
+        file_n = os.path.split(nfilename)[1]
+    except:
+        logger.error(module + ' unable to retrieve filename properly. Check your logs as there is probably an error or misconfiguration indicated (such as unable to locate unrar or configparser)')
+        return "fail"
+
     logger.fdebug(module + ' Converted directory: ' + str(file_dir))
     logger.fdebug(module + ' Converted filename: ' + str(file_n))
     logger.fdebug(module + ' Destination path: ' + os.path.join(file_dir,file_n))  #dirName,file_n))
@@ -276,9 +299,8 @@ def run (dirName, nzbName=None, issueid=None, manual=None, filename=None, module
     ##set up default comictagger options here.
     tagoptions = [ "-s", "--verbose" ]
 
-
     ## check comictagger version - less than 1.15.beta - take your chances.
-    ctversion = subprocess.check_output( [ comictagger_cmd, "--version" ] )
+    ctversion = subprocess.check_output( [ sys.executable, comictagger_cmd, "--version" ] )
     ctend = ctversion.find(':')
     ctcheck = re.sub("[^0-9]", "", ctversion[:ctend])
     ctcheck = re.sub('\.', '', ctcheck).strip()
@@ -352,7 +374,7 @@ def run (dirName, nzbName=None, issueid=None, manual=None, filename=None, module
         if mylar.CVAPI_COUNT == 0 or mylar.CVAPI_COUNT >= 200:
             cvapi_check()
 
-        currentScriptName = str(comictagger_cmd).decode("string_escape")
+        currentScriptName = sys.executable + ' ' + str(comictagger_cmd).decode("string_escape")
         logger.fdebug(module + ' Enabling ComicTagger script: ' + str(currentScriptName) + ' with options: ' + str(f_tagoptions))
             # generate a safe command line string to execute the script and provide all the parameters
         script_cmd = shlex.split(currentScriptName, posix=False) + f_tagoptions
