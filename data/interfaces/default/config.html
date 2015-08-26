@@ -13,7 +13,9 @@
 </%def>
 <%def name="body()">
 
-
+        <%
+             mylar.DONATEBUTTON = False
+        %>
 
 	<div id="paddingheader">
 		<h1 class="clearfix"><img src="interfaces/default/images/icon_gear.png" alt="settings"/>Settings</h1>
@@ -46,12 +48,28 @@
 
                        </div>                       
                    </fieldset>
+                   <fieldset>
+                       <legend>DONATIONS</legend>
+                         <a name="donate"></a>
+                         <div align="center">
+                            <label><strong>Mylar is free to use,</br>
+                            but you can contribute and support the development</br>
+                            by buying me a coffee (or several)</strong></label></br></br>
+                         </div>
+                         <div style="width: 60%; margin: 0px auto;">
+                            <a id="navDonate" href="https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&amp;hosted_button_id=EWQADB5AMVRFU" rel="noreferrer" onclick="window.open('http://dereferer.org/?' + this.href); return false;"><img src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif" alt="[donate]" /></a>
+                            <a href="https://flattr.com/submit/auto?user_id=evilhero&url=https://github.com/evilhero/mylar&title=Mylar%20Donation%description=Supporting&20the%development%20of%20Mylar&language=en_CA&hidden=1&category=software" target="_blank">
+                               <img src="//api.flattr.com/button/flattr-badge-large.png" alt="Flattr this" title="Flattr this" border="0" align="center">
+                            </a>
+                            <a href="#" onclick="javascript:window.prompt('Please copy/paste my Bitcoin address into your Bitcoin client.', '18eCE9wZxnNiZgE4Cc5pwJMnMjEfhdmH4U');"><img src="interfaces/default/images/bitcoin.png" alt="Bitcoin" height="20" align="center"></a></div>
+                         </div>
+                   </fieldset>
                   </td>
                   <td>
                    <fieldset>
                       <legend>Bragging Rights</legend>
                         <div>
-                            <label><strong># of Series you're watching: </strong> ${comicinfo['COUNT_COMICS']}</br></label>
+                           <label><strong># of Series you're watching: </strong> ${comicinfo['COUNT_COMICS']}</br></label>
                            <label><strong># of Issues you're watching: </strong> ${comicinfo['COUNT_ISSUES']}</br></label>
                            <label><strong># of Issues you actually have: </strong> ${comicinfo['COUNT_HAVES']}</br></label>
                            <label><strong> ... total HD-space being used: </strong> ${comicinfo['COUNT_SIZE']}</br></label>
@@ -65,19 +83,19 @@
                         </div>
                         <div class="row">
                           <label><strong>Forums</strong></label>
-                            <div><a href="http://forum.mylarcomics.com/">http://forum.mylarcomics.com</a></div>
+                            <div><a href="http://forum.mylarcomics.com/" target="_blank">http://forum.mylarcomics.com</a></div>
                         </div>
                         <div class="row">
                           <label><strong>Source</strong></label>
-                            <div><a href="https://github.com/evilhero/mylar/">https://github.com/evilhero/mylar/</a></div>
+                            <div><a href="https://github.com/evilhero/mylar/" target="_blank">https://github.com/evilhero/mylar/</a></div>
                         </div>
                         <div class="row">
                           <label><strong>Issues</strong></label>
-                            <div><a href="https://github.com/evilhero/mylar/issues">https://github.com/evilhero/mylar/issues/</a></div>
+                            <div><a href="https://github.com/evilhero/mylar/issues" target="_blank">https://github.com/evilhero/mylar/issues/</a></div>
                         </div>
                         <div class="row">
                           <label><strong>Internet Relay Chat</strong></label>
-                              <div><a href="irc://irc.freenode.net/#mylar">#mylar on irc.freenode.net</a></div>
+                              <div><a href="irc://irc.freenode.net/#mylar" target="_blank">#mylar on irc.freenode.net</a></div>
                         </div>
                 </fieldset>
                 <fieldset>
@@ -103,9 +121,27 @@
 	            		   <input type="text" name="http_host" value="${config['http_host']}" size="30">
 	            		   <small>e.g. localhost or 0.0.0.0</small>
 	            		</div> 
+                                <div class="row">
+                                    <label>HTTP Port</label>
+                                    <input type="text" name="http_port" value="${config['http_port']}" size="10">
+                                <div>
 	            		<div class="row">
-	            		      <label>HTTP Port</label>
-	            		      <input type="text" name="http_port" value="${config['http_port']}" size="10">
+                                    <div class="row checkbox">
+                                        <input type="checkbox" name="enable_https" id="enable_https" value="1" ${config['enable_https']} />
+                                        <label title="Enable HTTPS for web server for encrypted communication">
+                                            Enable HTTPS
+                                        </label>
+                                    </div>
+                                    <div id="https_options">
+                                        <div class="row">
+                                             <label>HTTPS Cert</label>
+                                             <input type="text" title="the FULL path to the certificate" name="https_cert" value="${config['https_cert']}" size="30">
+                                        </div>
+                                        <div class="row">
+                                             <label>HTTPS Key</label>
+                                             <input type="text" title="the FULL path to the key" name="https_key" value="${config['https_key']}" size="30">
+                                        </div>
+                                     </div>
 	            		 </div>
 	            		 <div class="row">
 	            		     <label>HTTP Username</label>
@@ -119,6 +155,7 @@
                                  <div class="row checkbox">
                                     <input type="checkbox" name="launch_browser" value="1" ${config['launch_browser']} /> <label>Launch Browser on Startup</label>
                                  </div>
+
 <!--
                                  <div class="row checkbox">
                                     <input type="checkbox" name="logverbose" value="2" ${config['logverbose']} /> <label>Verbose Logging</label>
@@ -129,10 +166,12 @@
                                     <input type="checkbox" name="syno_fix" value="1" ${config['syno_fix']} /> <label>Synology Fix</label>
                                     <br/><small>*Use this if experiencing parsing problems*</small>
                                  </div>
+<!--
                                  <div class="row checkbox">
-                                    <input type="checkbox" name="cvapifix" value="1" ${config['cvapifix']} /> <label>Comicvine URL Fix</label>
-                                    <br/><small>*Use this if CV's URL has changed*</small>
+                                    <input type="checkbox" name="auto_update" value="1" ${config['auto_update']} /> <label>Automatic Updates</label>
+                                    <br/><small>Install new updates with no intervention</small>
                                  </div>
+-->
             		 </fieldset>
                          <fieldset>
                              <legend>Annual Handling</legend>
@@ -207,6 +246,18 @@
                                     <input type="text" name="chmod_file" value="${config['chmod_file']}" size="50">
                                     <small>Permissions on created/moved directories</small>
                                 </div>
+                                %if 'windows' not in mylar.OS_DETECT:
+                                    <div class="row">
+                                        <label>Owner</label>
+                                        <input type="text" name="chowner" value="${config['chowner']}" size="50">
+                                        <small>Set Ownership of files/directories (name OR uid)</small>
+                                    </div>
+                                    <div class="row">
+                                        <label>Group</label>
+                                        <input type="text" name="chgroup" value="${config['chgroup']}" size="50">
+                                        <small>Set Group Ownership of files/directories (name OR gid)</small>
+                                    </div>
+                                %endif 
 
 	                </fieldset>
                 </td>
@@ -246,11 +297,6 @@
                                      <a href="#" style="float:right" type="button" id="find_sabapi" data-success="Sucessfully retrieved SABnzbd API" data-error="Error auto-populating SABnzbd API"><span class="ui-icon ui-icon-extlink"></span>Get API</a>
                                      </div>
                                 </div>
-                                <div class="row">
-                                    <label>SABnzbd Download Directory</label>
-                                    <input type="text" name="sab_directory" value="${config['sab_directory']}" size="36" />
-                                    <small>Where your SAB downloads go... (optional)</small>
-                                </div>
 
 	                        <div class="row">
 	                        <label>SABnzbd Category:</label>
@@ -270,6 +316,19 @@
                                                 %endfor
                                                 </select>
                                 </div>
+
+                                <div class="row checkbox left clearfix">
+                                    <input id="sab_to_mylar" type="checkbox" onclick="initConfigCheckbox($(this));" name="sab_to_mylar" value="1" ${config['sab_to_mylar']} /><label>Are Mylar / SABnzbd on seperate machines</label>
+                                    <small class="heading"><span style="float: left; margin-right: .3em; margin-top: 4px;" class="ui-icon ui-icon-info"></span>This is *ONLY* required if Mylar and SABnzbd are on seperate machines, otherwise don't touch it</small>
+                                </div>
+                                <div class="config">
+                                    <div class="row">
+                                        <label>SABnzbd Download Directory</label>
+                                        <input type="text" name="sab_directory" value="${config['sab_directory']}" size="36" />
+                                        <small>Where your SAB downloads go (required for PP)</small>
+                                    </div>
+                                </div>
+
 <!--
                                 <div class="row">
                                      <a href="#" style="float:right" type="button" onclick="doAjaxCall('addAction();SABtest',$(this))" data-success="Sucessfully tested SABnzbd connection" data-error="Error testing SABnzbd connection"><span class="ui-icon ui-icon-extlink"></span>Test SABnzbd</a>
@@ -426,11 +485,6 @@
                                 </div>
                                 <div class="config">
                                         <div class="row">
-                                            <label>DOGNZB UID</label>
-                                            <input type="text" name="dognzb_uid" value="${config['dognzb_uid']}" size="15">
-                                            <small>( only needed for RSS feed )</small>
-                                        </div>
-                                        <div class="row">
                                                 <label>DOGNZB API</label>
                                                 <input type="text" name="dognzb_apikey" value="${config['dognzb_api']}" size="36">
                                          </div>
@@ -456,13 +510,65 @@
                                                 <input id="enable_kat" type="checkbox" name="enable_kat" value=1 ${config['enable_kat']} /><label>Enable KAT</label>
                                          </div>
                                          <div class="row checkbox left clearfix">
-                                                <input id="enable_cbt" type="checkbox" onclick="initConfigCheckbox($(this));" name="enable_cbt" value=1 ${config['enable_cbt']} /><label>Enable CBT</label>
+                                                <input type="checkbox" id="enable_32p" onclick="initConfigCheckbox($(this));" name="enable_32p" value=1 ${config['enable_32p']} /><label>Enable 32P</label>
+                                                <div align="left">
+                                                  <small class="heading"><span style="float: left; margin-left: .3em; margin-top: 4px;" class="ui-icon ui-icon-info"></span>python 2.7.9 required for 32P usage</small>
+                                                </div>
                                          </div>
-                                         <div class="config">                                           
-                                                <label>&nbspPasskey</label>
-                                                <input type="text" name="cbt_passkey" value="${config['cbt_passkey']}" size="36">
+                                         <div class="config"> 
+                                             <fieldset>
+                                                <div align="center">
+                                                    <input type="radio" name="mode_32p" id="legacymode_32p" value="0" ${config['legacymode_32p']}> Legacy Mode <input type="radio" name="mode_32p" id="authmode_32p" value="1" ${config['authmode_32p']}> Auth Mode
+                                                </div>
+                                             </fieldset>
+                                             <fieldset id="legacy32p_options">
+                                                <div class="row">
+                                                   <label>&nbspPasskey</label>
+                                                   <input type="text" name="passkey_32p" value="${config['passkey_32p']}" size="36">
+                                                </div>
+                                                <div class="row">
+                                                   <label>&nbspRSS feed</label>
+                                                   <input type="text" name="rssfeed_32p" value="${config['rssfeed_32p']}" size="36">
+                                                   <small>( enter in the full url for any CURRENT 32P RSS feed )</small>
+                                                   <small>( Currently will only montior NEW releases feed )</small>
+                                                </div>
+                                             </fieldset>
+                                             <fieldset id="auth32p_options">
+                                                <div align="center">
+                                                  <small class="heading">do NOT use a VPN with this option</small>
+                                                </div>
+                                                <div class="row">
+                                                    <label>&nbspUserName</label>
+                                                    <input type="text" name="username_32p" value="${config['username_32p']}" size="36">
+                                                </div>
+                                                <div class="row">
+                                                    <label>&nbspPassword</label>
+                                                    <input type="password" name="password_32p" value="${config['password_32p']}" size="36">
+                                                    <small>( monitor the NEW releases feed & your personal notifications )</small>
+                                                </div>
+                                             </fieldset>
                                          </div>
+                                         <div class="row checkbox left clearfix">
+                                                <input type="checkbox" id="enable_torznab" onclick="initConfigCheckbox($(this));" name="enable_torznab" value=1 ${config['enable_torznab']} /><label>Enable Torznab</label>
                                          </div>
+                                         <div class="config">
+                                            <div class="row">
+                                                <label>Torznab Name</label>
+                                                <input type="text" name="torznab_name" value="${config['torznab_name']}" size="30">
+                                            </div>
+                                            <div class="row">
+                                                <label>Torznab Host</label>
+                                                <input type="text" name="torznab_host" value="${config['torznab_host']}" size="30">
+                                            </div>
+                                            <div class="row">
+                                                <label>Torznab API</label>
+                                                <input type="text" name="torznab_apikey" value="${config['torznab_apikey']}" size="36">
+                                            </div>
+                                            <div class="row">
+                                                <label>Torznab Category</label>
+                                                <input type="text" name="torznab_category" value="${config['torznab_category']}" size="12">
+                                            </div>
+                                        </div>
                                 </div>
                         </fieldset>
 
@@ -564,7 +670,7 @@
                                 </div>
                                 <div class="config">
                                        <div class="row">
-             <input type="text" name="minsize" value="${config['minsize']}" size="6">
+                                           <input type="text" name="minsize" value="${config['minsize']}" size="6">
                                        </div>
                                 </div>
                                 </div>
@@ -581,10 +687,20 @@
                         </fieldset>
                         <fieldset>
                              <legend>Duplicate Handling</legend>
-                             <div class="row checkbox left clearfix">
-                             
-                             </div>
-
+                             <div class="row">
+                                 <label>Retain based on</label>
+                                 <select name="dupeconstraint">
+                                  %for x in ['filesize', 'filetype-cbr', 'filetype-cbz']:
+                                         <%
+                                                if config['dupeconstraint'] == x:
+                                                    outputselect = 'selected'
+                                                else:
+                                                    outputselect = ''
+                                          %>
+                                          <option value=${x} ${outputselect}>${x}</option>
+                                  %endfor
+                                 </select>
+                            </div>
                         </fieldset>
                         <fieldset>
                              <legend>Failed Download Handling</legend>
@@ -804,13 +920,16 @@
                                                      <div class="row">
                                                          <label>API key</label><input type="text" name="prowl_keys" value="${config['prowl_keys']}" size="50">
                                                      </div>
-                                                        <div class="row checkbox">
-                                                             <input type="checkbox" name="prowl_onsnatch" value="1" ${config['prowl_onsnatch']} /><label>Notify on snatch?</label>
-                                                        </div>
-                                                        <div class="row">
-                                                                <label>Priority (-2,-1,0,1 or 2):</label>
-                                                                   <input type="text" name="prowl_priority" value="${config['prowl_priority']}" size="2">
-                                                        </div>
+                                                     <div class="row checkbox">
+                                                         <input type="checkbox" name="prowl_onsnatch" value="1" ${config['prowl_onsnatch']} /><label>Notify on snatch?</label>
+                                                     </div>
+                                                     <div class="row">
+                                                         <label>Priority (-2,-1,0,1 or 2):</label>
+                                                         <input type="text" name="prowl_priority" value="${config['prowl_priority']}" size="2">
+                                                     </div>
+                                                     <div class="row">
+                                                         <input type="button" value="Test PROWL" id="prowl_test" />
+                                                     </div>
                                                  </div>
                                         </fieldset>
                      <fieldset>
@@ -828,8 +947,8 @@
                                     <small>Separate multiple api keys with commas</small>
                             </div>
                             <div class="row">
-                            <label>Priority</label>
-                            <select name="nma_priority">
+                                <label>Priority</label>
+                                <select name="nma_priority">
                                         %for x in [-2,-1,0,1,2]:
                                                 <%
                                                         if config['nma_priority'] == x:	
@@ -848,19 +967,22 @@
                                                         else:
                                                                 nma_priority_value = 'Emergency'
                                                 %>
-                                <option value=${x} ${nma_priority_selected}>${nma_priority_value}</option>
+                                            <option value=${x} ${nma_priority_selected}>${nma_priority_value}</option>
                                         %endfor
                                 </select>
-                                </div>
+                            </div>
+                            <div class="row">
+                                    <input type="button" value="Test NMA" id="nma_test" />
+                            </div>
                         </div>
                      </fieldset>
                                         
                                         <fieldset>
-                                                 <h3><img src="interfaces/default/images/pushover_logo.png" style="vertical-align: middle; margin: 3px; margin-top: -1px;" height="30" width="30"/>Pushover</h3>
-                                                 <div class="row checkbox">
-                                                    <input type="checkbox" name="pushover_enabled" id="pushover" value="1" ${config['pushover_enabled']} /><label>Enable Pushover Notifications</label>
-                                                 </div>
-                                                 <div id="pushoveroptions">
+                                             <h3><img src="interfaces/default/images/pushover_logo.png" style="vertical-align: middle; margin: 3px; margin-top: -1px;" height="30" width="30"/>Pushover</h3>
+                                             <div class="row checkbox">
+                                                 <input type="checkbox" name="pushover_enabled" id="pushover" value="1" ${config['pushover_enabled']} /><label>Enable Pushover Notifications</label>
+                                             </div>
+                                             <div id="pushoveroptions">
                                                    <div class="row">
                                                        <label>API key</label><input type="text" title="Leave blank if you don't have your own API (recommended to get your own)" name="pushover_apikey" value="${config['pushover_apikey']}" size="50">
                                                    </div>
@@ -874,7 +996,10 @@
                                                        <label>Priority (-2,-1,0,1 or 2):</label>
                                                        <input type="text" name="pushover_priority" value="${config['pushover_priority']}" size="2">
                                                    </div>
-                                                 </div>
+                                                   <div class="row">
+                                                        <input type="button" value="Test Pushover" id="pushover_test" />
+                                                   </div>
+                                             </div>
                                         </fieldset>            
                      <fieldset>
                         <h3><img src="interfaces/default/images/boxcar_logo.png" style="vertical-align: middle; margin: 3px; margin-top: -1px;" height="30" width="30"/>Boxcar.IO</h3>
@@ -888,6 +1013,9 @@
                                     </div>
                                     <label>Boxcar Token</label>
                                     <input type="text" name="boxcar_token" value="${config['boxcar_token']}" size="30">
+                                    <div class="row">
+                                        <input type="button" value="Test Boxcar" id="boxcar_test" />
+                                   </div>
                             </div>
                         </div>
                      </fieldset>
@@ -902,14 +1030,18 @@
                                     </div>
                                     <div class="row">
                                         <label>API Key</label><input type="text" name="pushbullet_apikey" value="${config['pushbullet_apikey']}" size="50">
+                                        <small>Warning: Will send to ALL your pushbullet devices</small>
                                     </div>
                                     <div class="row">
-                                        <label>Device ID</label><input type="text" name="pushbullet_deviceid" value="${config['pushbullet_deviceid']}" size="50">
-<!--                                    <label>Pushbullet device list</label>
+<!--                                    <label>Device ID</label><input type="text" name="pushbullet_deviceid" value="${config['pushbullet_deviceid']}" size="50">
+                                        <label>Pushbullet device list</label>
                                         <select name="pushbullet_device_list" id="pushbullet_device_list"></select>
                                         <input type="hidden" id="pushbullet_deviceid" value="${config['pushbullet_deviceid']}" />
                                         <input type="button" class="btn" value="Update device list" id="getPushbulletDevices" />
 -->
+                                    </div>
+                                    <div class="row">
+                                         <input type="button" value="Test Pushbullet" id="pushbullet_test" />
                                     </div>
                                 </div>
                             </fieldset>
@@ -1070,7 +1202,29 @@
                         {
                                 $("#pushbulletoptions").slideUp();
                         }
-                
+                });
+
+                if ($("#legacymode_32p").is(":checked"))
+                        {
+                                $("#auth32p_options").hide();
+                                $("#legacy32p_options").show();
+                        }
+                else
+                        {
+                                $("#legacy32p_options").hide();
+                                $("#auth32p_options").show();
+                        }
+
+                $('input[type=radio]').change(function(){
+                        if ($("#legacymode_32p").is(":checked"))
+                        {
+                                $("#auth32p_options").fadeOut("fast", function() { $("#legacy32p_options").fadeIn() });
+                        }
+                        else
+                        {
+                                $("#legacy32p_options").fadeOut("fast", function() { $("#auth32p_options").fadeIn() });
+                        }
+                });
 
                 if ($("#nzb_downloader_sabnzbd").is(":checked"))
                         {
@@ -1087,7 +1241,6 @@
                                 $("#sabnzbd_options,#nzbget_options").hide();
                                 $("#blackhole_options").show();
                         }
-                });
 
                 $('input[type=radio]').change(function(){
                         if ($("#nzb_downloader_sabnzbd").is(":checked"))
@@ -1122,7 +1275,24 @@
                             $('#api_key').val(data);
                     });
                 });
-
+                if ($("#enable_https").is(":checked"))
+                        {
+                            $("#https_options").show();
+                        }
+                else
+                        {
+                            $("#https_options").hide();
+                        }
+                $("#enable_https").click(function(){
+                        if ($("#enable_https").is(":checked"))
+                        {
+                            $("#https_options").slideDown();
+                        }
+                        else
+                        {
+                            $("#https_options").slideUp();
+                        }
+                });
                 $('#sab_apikey').click(function(){ $('#sab_apikey').select() });
                 $("#find_sabapi").click(function(){
                     $.get('findsabAPI',
@@ -1152,21 +1322,53 @@
                         $('#autoadd').append('<input type="hidden" name="tsab" value=1 />');
                 };
 
+                $('#nma_test').click(function () {
+                    $.get("/testNMA",
+                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
+                });
+
+                $('#prowl_test').click(function () {
+                    $.get("/testprowl",
+                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
+                });
+
+                $('#pushover_test').click(function () {
+                    $.get("/testpushover",
+                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
+                });
+
+                $('#boxcar_test').click(function () {
+                    $.get("/testboxcar",
+                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
+                });
+
+                $('#pushbullet_test').click(function () {
+                    $.get("/testpushbullet",
+                        function (data) { $('#ajaxMsg').html("<div class='msg'><span class='ui-icon ui-icon-check'></span>"+data+"</div>"); });
+                    $('#ajaxMsg').addClass('success').fadeIn().delay(3000).fadeOut();
+                });
 
 		$(function() {
 			$( "#tabs" ).tabs();
 		});
 		initActions();
                 initConfigCheckbox("#launch_browser");
+                initConfigCheckbox("#enable_https");
                 initConfigCheckbox("#enable_api");
+                initConfigCheckbox("#sab_to_mylar");
                 initConfigCheckbox("#usenewznab");
+                initConfigCheckbox("#enable_torznab");
 		initConfigCheckbox("#usenzbsu");
                 initConfigCheckbox("#usedognzb");
                 initConfigCheckbox("#enable_torrents");
                 initConfigCheckbox("#torrent_local");
                 initConfigCheckbox("#torrent_seedbox");
                 initConfigCheckbox("#enable_torrent_search");
-                initConfigCheckbox("#enable_cbt");
+                initConfigCheckbox("#enable_32p");
                 initConfigCheckbox("#enable_rss");
 		initConfigCheckbox("#useexperimental");
 		initConfigCheckbox("#useraw");

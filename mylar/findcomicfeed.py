@@ -27,16 +27,19 @@ def Startit(searchName, searchIssue, searchYear, ComicVersion, IssDateFix):
     encodeSearch = urllib.quote_plus(searchName)
     splitSearch = encodeSearch.split(" ")
 
-    joinSearch = "+".join(splitSearch)+"+"+searchIssue
-    searchIsOne = "0"+searchIssue
-    searchIsTwo = "00"+searchIssue
+    joinSearch = "+".join(splitSearch) +"+" +searchIssue
+    searchIsOne = "0" +searchIssue
+    searchIsTwo = "00" +searchIssue
+
+    if mylar.PREFERRED_QUALITY == 1: joinSearch = joinSearch + " .cbr"
+    elif mylar.PREFERRED_QUALITY == 2: joinSearch = joinSearch + " .cbz"
 
     if "-" in searchName:
         searchName = searchName.replace("-", '((\\s)?[-:])?(\\s)?')
 
     regexName = searchName.replace(" ", '((\\s)?[-:])?(\\s)?')
 
-    
+
     #logger.fdebug('searchName:' + searchName)
     #logger.fdebug('regexName:' + regexName)
 
@@ -79,7 +82,7 @@ def Startit(searchName, searchIssue, searchYear, ComicVersion, IssDateFix):
                             "link":      urlParse["href"],
                             "length":    urlParse["length"],
                             "pubdate":   feed.entries[countUp].updated})
-    	    countUp=countUp+1
+            countUp=countUp +1
         logger.fdebug('keypair: ' + str(keyPair))
 
 
@@ -91,10 +94,10 @@ def Startit(searchName, searchIssue, searchYear, ComicVersion, IssDateFix):
         regExOne = "(%s\\s*(0)?(0)?%s\\s*\\(.*?\\)\\s*\\(%s\\))" %(regexName, searchIssue, searchYear)
 
         #Sometimes comics aren't actually published the same year comicVine says - trying to adjust for these cases
-        regExTwo = "(%s\\s*(0)?(0)?%s\\s*\\(%s\\))" %(regexName, searchIssue, int(searchYear)+1)
-        regExThree = "(%s\\s*(0)?(0)?%s\\s*\\(%s\\))" %(regexName, searchIssue, int(searchYear)-1)
-        regExFour = "(%s\\s*(0)?(0)?%s\\s*\\(.*?\\)\\s*\\(%s\\))" %(regexName, searchIssue, int(searchYear)+1)
-        regExFive = "(%s\\s*(0)?(0)?%s\\s*\\(.*?\\)\\s*\\(%s\\))" %(regexName, searchIssue, int(searchYear)-1)
+        regExTwo = "(%s\\s*(0)?(0)?%s\\s*\\(%s\\))" %(regexName, searchIssue, int(searchYear) +1)
+        regExThree = "(%s\\s*(0)?(0)?%s\\s*\\(%s\\))" %(regexName, searchIssue, int(searchYear) -1)
+        regExFour = "(%s\\s*(0)?(0)?%s\\s*\\(.*?\\)\\s*\\(%s\\))" %(regexName, searchIssue, int(searchYear) +1)
+        regExFive = "(%s\\s*(0)?(0)?%s\\s*\\(.*?\\)\\s*\\(%s\\))" %(regexName, searchIssue, int(searchYear) -1)
 
         regexList=[regEx, regExOne, regExTwo, regExThree, regExFour, regExFive]
 
@@ -105,21 +108,30 @@ def Startit(searchName, searchIssue, searchYear, ComicVersion, IssDateFix):
             logger.fdebug("titlesplit: " + str(title.split("\"")))
             splitTitle = title.split("\"")
             noYear = 'False'
+            _digits = re.compile('\d')
 
             for subs in splitTitle:
                 logger.fdebug('sub:' + subs)
                 regExCount = 0
-                if len(subs) >= len(cName) and not any(d in subs.lower() for d in except_list):
+                if len(subs) >= len(cName) and not any(d in subs.lower() for d in except_list) and bool(_digits.search(subs)) is True:
                 #Looping through dictionary to run each regEx - length + regex is determined by regexList up top.
 #                while regExCount < len(regexList):
 #                    regExTest = re.findall(regexList[regExCount], subs, flags=re.IGNORECASE)
 #                    regExCount = regExCount +1
-#                    if regExTest:   
+#                    if regExTest:
 #                        logger.fdebug(title)
 #                        entries.append({
 #                                  'title':   subs,
 #                                  'link':    str(link)
 #                                  })
+                    # this will still match on crap like 'For SomeSomayes' especially if the series length < 'For SomeSomayes'
+                    if subs.lower().startswith('for'):
+                        if cName.lower().startswith('for'):
+                            pass
+                        else:
+                            #this is the crap we ignore. Continue (commented else, as it spams the logs)
+                            #logger.fdebug('this starts with FOR : ' + str(subs) + '. This is not present in the series - ignoring.')
+                            continue
                     logger.fdebug('match.')
                     if IssDateFix != "no":
                         if IssDateFix == "01" or IssDateFix == "02": ComicYearFix = str(int(searchYear) - 1)
@@ -134,11 +146,11 @@ def Startit(searchName, searchIssue, searchYear, ComicVersion, IssDateFix):
                     if (searchYear in subs or ComicYearFix in subs) and noYear == 'True':
                         #this would occur on the next check in the line, if year exists and
                         #the noYear check in the first check came back valid append it
-                        subs = noYearline + ' (' + searchYear + ')'                  
+                        subs = noYearline + ' (' + searchYear + ')'
                         noYear = 'False'
 
                     if noYear == 'False':
-                        
+
                         entries.append({
                                   'title':     subs,
                                   'link':      entry['link'],
@@ -146,11 +158,11 @@ def Startit(searchName, searchIssue, searchYear, ComicVersion, IssDateFix):
                                   'length':    entry['length']
                                   })
                         break  # break out so we don't write more shit.
-              
+
 #    if len(entries) >= 1:
     if tallycount >= 1:
         mres['entries'] = entries
-        return mres 
+        return mres
     else:
         logger.fdebug("No Results Found")
         return "no results"

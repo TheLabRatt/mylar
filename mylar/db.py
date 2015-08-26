@@ -47,7 +47,7 @@ class WriteOnly:
     def worker(self):
         myDB = DBConnection()
         #this should be in it's own thread somewhere, constantly polling the queue and sending them to the writer.
-        logger.fdebug('worker started.')      
+        logger.fdebug('worker started.')
         while True:
             thisthread = threading.currentThread().name
             if not mylarQueue.empty():
@@ -58,20 +58,20 @@ class WriteOnly:
                 sqlResult = myDB.upsert(QtableName, QvalueDict, QkeyDict)
                 if sqlResult:
                     mylarQueue.task_done()
-                    return sqlResult            
-            #else:
-            #    time.sleep(1)
-            #    logger.fdebug('[' + str(thisthread) + '] sleeping until active.')
+                    return sqlResult
+            else:
+                time.sleep(1)
+                #logger.fdebug('[' + str(thisthread) + '] sleeping until active.')
 
 class DBConnection:
 
     def __init__(self, filename="mylar.db"):
-    
+
         self.filename = filename
         self.connection = sqlite3.connect(dbFilename(filename), timeout=20)
         self.connection.row_factory = sqlite3.Row
         self.queue = mylarQueue
-        
+
     def fetch(self, query, args=None):
 
         with db_lock:
@@ -115,10 +115,10 @@ class DBConnection:
         with db_lock:
             if query == None:
                 return
-                
+
             sqlResult = None
             attempt = 0
-            
+
             while attempt < 5:
                 try:
                     if args == None:
@@ -141,14 +141,14 @@ class DBConnection:
             return sqlResult
 
     def select(self, query, args=None):
-    
+
         sqlResults = self.fetch(query, args).fetchall()
-        
+
         if sqlResults == None:
             return []
-            
+
         return sqlResults
-                    
+
     def selectone(self, query, args=None):
         sqlResults = self.fetch(query, args)
 
@@ -159,25 +159,26 @@ class DBConnection:
 
 
     def upsert(self, tableName, valueDict, keyDict):
+        thisthread = threading.currentThread().name
 
         changesBefore = self.connection.total_changes
-        
-        genParams = lambda myDict : [x + " = ?" for x in myDict.keys()]
-       
+
+        genParams = lambda myDict: [x + " = ?" for x in myDict.keys()]
+
         query = "UPDATE " + tableName + " SET " + ", ".join(genParams(valueDict)) + " WHERE " + " AND ".join(genParams(keyDict))
 
         self.action(query, valueDict.values() + keyDict.values())
 
         if self.connection.total_changes == changesBefore:
-            query = "INSERT INTO "+tableName+" (" + ", ".join(valueDict.keys() + keyDict.keys()) + ")" + \
+            query = "INSERT INTO " +tableName +" (" + ", ".join(valueDict.keys() + keyDict.keys()) + ")" + \
                         " VALUES (" + ", ".join(["?"] * len(valueDict.keys() + keyDict.keys())) + ")"
             self.action(query, valueDict.values() + keyDict.values())
 
 
-       # else:
-       #     logger.info('[' + str(thisthread) + '] db is currently locked for writing. Queuing this action until it is free')
-       #     logger.info('Table: ' + str(tableName) + ' Values: ' + str(valueDict) + ' Keys: ' + str(keyDict))
-       #     self.queue.put( (tableName, valueDict, keyDict) )
-       #     #assuming this is coming in from a seperate thread, so loop it until it's free to write.
-       #     #self.queuesend()
+        #else:
+        #    logger.info('[' + str(thisthread) + '] db is currently locked for writing. Queuing this action until it is free')
+        #    logger.info('Table: ' + str(tableName) + ' Values: ' + str(valueDict) + ' Keys: ' + str(keyDict))
+        #    self.queue.put( (tableName, valueDict, keyDict) )
+        #    #assuming this is coming in from a seperate thread, so loop it until it's free to write.
+        #    #self.queuesend()
 
