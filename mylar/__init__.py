@@ -33,8 +33,8 @@ import locale
 import re
 from threading import Lock, Thread
 
-from lib.apscheduler.scheduler import Scheduler
-from lib.configobj import ConfigObj
+from apscheduler.scheduler import Scheduler
+from configobj import ConfigObj
 
 import cherrypy
 
@@ -49,12 +49,21 @@ SIGNAL = None
 SYS_ENCODING = None
 OS_DETECT = platform.system()
 
-VERBOSE = 1
+VERBOSE = False
 DAEMON = False
 PIDFILE= None
 CREATEPID = False
 SAFESTART = False
 AUTO_UPDATE = False
+NOWEEKLY = False
+
+IMPORT_STATUS = None
+IMPORT_FILES = 0
+IMPORT_TOTALFILES = 0
+IMPORT_CID_COUNT = 0
+IMPORT_PARSED_COUNT = 0
+IMPORT_FAILURE_COUNT = 0
+CHECKENABLED = False
 
 SCHED = Scheduler()
 
@@ -63,6 +72,7 @@ __INITIALIZED__ = False
 started = False
 WRITELOCK = False
 LOGTYPE = None
+IMPORTLOCK = False
 
 ## for use with updated scheduler (not working atm)
 INIT_LOCK = Lock()
@@ -79,6 +89,7 @@ DATA_DIR = None
 DBLOCK = False
 
 UMASK = None
+WANTED_TAB_OFF = False
 
 CONFIG_FILE = None
 CFG = None
@@ -86,6 +97,7 @@ CONFIG_VERSION = None
 
 DB_FILE = None
 DBCHOICE = None
+DYNAMIC_UPDATE = 0
 
 #these are used depending on dbchoice.
 DBUSER = None
@@ -95,6 +107,7 @@ DBNAME = None
 LOG_DIR = None
 LOG_LIST = []
 MAX_LOGSIZE = None
+QUIET = False
 
 CACHE_DIR = None
 SYNO_FIX = False
@@ -102,7 +115,8 @@ IMPORTBUTTON = False
 DONATEBUTTON = True
 
 PULLNEW = None
-ALT_PULL = False
+ALT_PULL = 0
+PULLBYFILE = False
 
 LOCAL_IP = None
 EXT_IP = None
@@ -114,13 +128,13 @@ HTTP_ROOT = None
 ENABLE_HTTPS = False
 HTTPS_CERT = None
 HTTPS_KEY = None
+HTTPS_CHAIN = None
 HTTPS_FORCE_ON = False
 HOST_RETURN = None
 API_ENABLED = False
 API_KEY = None
 DOWNLOAD_APIKEY = None
 LAUNCH_BROWSER = False
-LOGVERBOSE = None
 GIT_PATH = None
 INSTALL_TYPE = None
 CURRENT_VERSION = None
@@ -133,9 +147,9 @@ SEARCH_DELAY = 1
 
 COMICVINE_API = None
 DEFAULT_CVAPI = '583939a3df0a25fc4e8b7a29934a13078002dc27'
-CVAPI_COUNT = 0
-CVAPI_TIME = None
-CVAPI_MAX = 400
+CVAPI_RATE = 2
+CV_HEADERS = None
+BLACKLISTED_PUBLISHERS = None
 
 CHECK_GITHUB = False
 CHECK_GITHUB_ON_STARTUP = False
@@ -143,6 +157,7 @@ CHECK_GITHUB_INTERVAL = None
 
 DESTINATION_DIR = None   #if M_D_D_ is enabled, this will be the DEFAULT for writing
 MULTIPLE_DEST_DIRS = None  #Nothing will ever get written to these dirs - just for scanning, unless it's metatagging/renaming.
+ENFORCE_PERMS = True
 CHMOD_DIR = None
 CHMOD_FILE = None
 CHOWNER = None
@@ -153,19 +168,20 @@ DELETE_REMOVE_DIR = False
 
 ADD_COMICS = False
 COMIC_DIR = None
-LIBRARYSCAN = False
 IMP_MOVE = False
 IMP_RENAME = False
-IMP_METADATA = False  # should default to False - this is enabled for testing only.
+IMP_METADATA = True  # should default to False - this is enabled for testing only.
 
 SEARCH_INTERVAL = 360
 NZB_STARTUP_SEARCH = False
-LIBRARYSCAN_INTERVAL = 300
 DOWNLOAD_SCAN_INTERVAL = 5
+FOLDER_SCAN_LOG_VERBOSE = 0
 CHECK_FOLDER = None
 ENABLE_CHECK_FOLDER = False
 INTERFACE = None
 DUPECONSTRAINT = None
+DDUMP = False
+DUPLICATE_DUMP = None
 PREFERRED_QUALITY = 0
 CORRECT_METADATA = False
 MOVE_FILES = False
@@ -207,12 +223,17 @@ PUSHBULLET_ENABLED = False
 PUSHBULLET_APIKEY = None
 PUSHBULLET_DEVICEID = None
 PUSHBULLET_ONSNATCH = False
+TELEGRAM_ENABLED = False
+TELEGRAM_TOKEN = None
+TELEGRAM_USERID = None
+TELEGRAM_ONSNATCH = False
 
 SKIPPED2WANTED = False
 CVINFO = False
 LOG_LEVEL = None
 POST_PROCESSING = 1
 POST_PROCESSING_SCRIPT = None
+FILE_OPTS = None
 
 NZB_DOWNLOADER = None  #0 = sabnzbd, #1 = nzbget, #2 = blackhole
 
@@ -239,18 +260,22 @@ USE_BLACKHOLE = False
 BLACKHOLE_DIR = None
 
 PROVIDER_ORDER = None
+TMP_PROV = None   #to be used to compare provider being used against provider that actually found the result (ie. TPSE != WWT, != DEM)
 
 NZBSU = False
 NZBSU_UID = None
 NZBSU_APIKEY = None
+NZBSU_VERIFY = True
 
 DOGNZB = False
 DOGNZB_APIKEY = None
+DOGNZB_VERIFY = True
 
 NEWZNAB = False
 NEWZNAB_NAME = None
 NEWZNAB_HOST = None
 NEWZNAB_APIKEY = None
+NEWZNAB_VERIFY = True
 NEWZNAB_UID = None
 NEWZNAB_ENABLED = False
 EXTRA_NEWZNABS = []
@@ -261,6 +286,7 @@ TORZNAB_NAME = None
 TORZNAB_HOST = None
 TORZNAB_APIKEY = None
 TORZNAB_CATEGORY = None
+TORZNAB_VERIFY = False
 
 EXPERIMENTAL = False
 ALTEXPERIMENTAL = False
@@ -289,6 +315,7 @@ GRABBAG_DIR = None
 HIGHCOUNT = 0
 READ2FILENAME = 0
 SEND2READ = 0
+MAINTAINSERIESFOLDER = 0
 TAB_ENABLE = 0
 TAB_HOST = None
 TAB_USER = None
@@ -296,9 +323,16 @@ TAB_PASS = None
 TAB_DIRECTORY = None
 STORYARCDIR = 0
 COPY2ARCDIR = 0
+ARC_FOLDERFORMAT = None
+ARC_FILEOPS = 'copy'
 
 CVURL = None
+CURRENT_WEEKNUMBER = None
+CURRENT_YEAR = None
+PULL_REFRESH = None
 WEEKFOLDER = 0
+WEEKFOLDER_LOC = None
+WEEKFOLDER_FORMAT = 0
 LOCMOVE = 0
 NEWCOM_DIR = None
 FFTONEWCOM_DIR = 0
@@ -310,10 +344,13 @@ BIGGIE_PUB = 55
 
 ENABLE_META = 0
 CMTAGGER_PATH = None
+CBR2CBZ_ONLY = 0
 CT_TAG_CR = 1
 CT_TAG_CBL = 1
 CT_CBZ_OVERWRITE = 0
 UNRAR_CMD = None
+CT_SETTINGSPATH = None
+CMTAG_START_YEAR_AS_VOLUME = False
 
 UPCOMING_SNATCHED = 1
 
@@ -329,10 +366,15 @@ FAILED_DOWNLOAD_HANDLING = 0
 FAILED_AUTO = 0
 
 ENABLE_TORRENTS = 0
+TORRENT_DOWNLOADER = None  #0 = watchfolder, #1 = uTorrent, #2 = rTorrent, #3 = transmission
 MINSEEDS = 0
-TORRENT_LOCAL = 0
+
+ALLOW_PACKS = False
+
+USE_WATCHDIR = False
+TORRENT_LOCAL = False
 LOCAL_WATCHDIR = None
-TORRENT_SEEDBOX = 0
+TORRENT_SEEDBOX = False
 SEEDBOX_HOST = None
 SEEDBOX_PORT = None
 SEEDBOX_USER = None
@@ -340,10 +382,12 @@ SEEDBOX_PASS = None
 SEEDBOX_WATCHDIR = None
 
 ENABLE_TORRENT_SEARCH = 0
-ENABLE_KAT = 0
-KAT_PROXY = None
+ENABLE_TPSE = 0
+TPSE_PROXY = None
+TPSE_VERIFY = True
 
 ENABLE_32P = 0
+SEARCH_32P = 0   #0 = use WS to grab torrent groupings, #1 = use 32P to grab torrent groupings
 MODE_32P = None  #0 = legacymode, #1 = authmode
 KEYS_32P = None
 RSSFEED_32P = None
@@ -354,6 +398,38 @@ AUTHKEY_32P = None
 FEEDINFO_32P = None
 VERIFY_32P = 1
 SNATCHEDTORRENT_NOTIFY = 0
+
+USE_RTORRENT = False
+RTORRENT_HOST = None
+RTORRENT_AUTHENTICATION = 'basic'
+RTORRENT_RPC_URL = None
+RTORRENT_SSL = 0
+RTORRENT_VERIFY = 0
+RTORRENT_CA_BUNDLE = None
+RTORRENT_USERNAME = None
+RTORRENT_PASSWORD = None
+RTORRENT_STARTONLOAD = 0
+RTORRENT_LABEL = None
+RTORRENT_DIRECTORY = None
+
+USE_UTORRENT = False
+UTORRENT_HOST = None
+UTORRENT_USERNAME = None
+UTORRENT_PASSWORD = None
+UTORRENT_LABEL = None
+
+USE_TRANSMISSION = False
+TRANSMISSION_HOST = None
+TRANSMISSION_USERNAME = None
+TRANSMISSION_PASSWORD = None
+TRANSMISSION_DIRECTORY = None
+
+USE_DELUGE = False
+DELUGE_HOST = None
+DELUGE_USERNAME = None
+DELUGE_PASSWORD = None
+DELUGE_LABEL = None
+
 
 def CheckSection(sec):
     """ Check if INI section exists, if not create it """
@@ -377,7 +453,7 @@ def check_setting_int(config, cfg_name, item_name, def_val):
         except:
             config[cfg_name] = {}
             config[cfg_name][item_name] = my_val
-    logger.debug(item_name + " -> " + str(my_val))
+    #logger.debug(item_name + " -> " + str(my_val))
     return my_val
 
 ################################################################################
@@ -394,33 +470,40 @@ def check_setting_str(config, cfg_name, item_name, def_val, log=True):
             config[cfg_name] = {}
             config[cfg_name][item_name] = my_val
 
-    if log:
-        logger.debug(item_name + " -> " + my_val)
-    else:
-        logger.debug(item_name + " -> ******")
+    #if log:
+    #    logger.debug(item_name + " -> " + my_val)
+    #else:
+    #    logger.debug(item_name + " -> ******")
     return my_val
 
 
 def initialize():
 
     with INIT_LOCK:
-        global __INITIALIZED__, DBCHOICE, DBUSER, DBPASS, DBNAME, COMICVINE_API, DEFAULT_CVAPI, CVAPI_COUNT, CVAPI_TIME, CVAPI_MAX, FULL_PATH, PROG_DIR, VERBOSE, DAEMON, UPCOMING_SNATCHED, COMICSORT, DATA_DIR, CONFIG_FILE, CFG, CONFIG_VERSION, LOG_DIR, CACHE_DIR, MAX_LOGSIZE, LOGVERBOSE, OLDCONFIG_VERSION, OS_DETECT, \
-                queue, LOCAL_IP, EXT_IP, HTTP_PORT, HTTP_HOST, HTTP_USERNAME, HTTP_PASSWORD, HTTP_ROOT, ENABLE_HTTPS, HTTPS_CERT, HTTPS_KEY, HTTPS_FORCE_ON, HOST_RETURN, API_ENABLED, API_KEY, DOWNLOAD_APIKEY, LAUNCH_BROWSER, GIT_PATH, SAFESTART, AUTO_UPDATE, \
+        global __INITIALIZED__, DBCHOICE, DBUSER, DBPASS, DBNAME, DYNAMIC_UPDATE, COMICVINE_API, DEFAULT_CVAPI, CVAPI_RATE, CV_HEADERS, BLACKLISTED_PUBLISHERS, FULL_PATH, PROG_DIR, VERBOSE, DAEMON, UPCOMING_SNATCHED, COMICSORT, DATA_DIR, CONFIG_FILE, CFG, CONFIG_VERSION, LOG_DIR, CACHE_DIR, MAX_LOGSIZE, OLDCONFIG_VERSION, OS_DETECT, \
+                queue, WANTED_TAB_OFF, LOCAL_IP, EXT_IP, HTTP_PORT, HTTP_HOST, HTTP_USERNAME, HTTP_PASSWORD, HTTP_ROOT, ENABLE_HTTPS, HTTPS_CERT, HTTPS_KEY, HTTPS_CHAIN, HTTPS_FORCE_ON, HOST_RETURN, API_ENABLED, API_KEY, DOWNLOAD_APIKEY, LAUNCH_BROWSER, GIT_PATH, SAFESTART, NOWEEKLY, AUTO_UPDATE, \
+                IMPORT_STATUS, IMPORT_FILES, IMPORT_TOTALFILES, IMPORT_CID_COUNT, IMPORT_PARSED_COUNT, IMPORT_FAILURE_COUNT, CHECKENABLED, \
                 CURRENT_VERSION, LATEST_VERSION, CHECK_GITHUB, CHECK_GITHUB_ON_STARTUP, CHECK_GITHUB_INTERVAL, GIT_USER, GIT_BRANCH, USER_AGENT, DESTINATION_DIR, MULTIPLE_DEST_DIRS, CREATE_FOLDERS, DELETE_REMOVE_DIR, \
-                DOWNLOAD_DIR, USENET_RETENTION, SEARCH_INTERVAL, NZB_STARTUP_SEARCH, INTERFACE, DUPECONSTRAINT, AUTOWANT_ALL, AUTOWANT_UPCOMING, ZERO_LEVEL, ZERO_LEVEL_N, COMIC_COVER_LOCAL, HIGHCOUNT, \
-                LIBRARYSCAN, LIBRARYSCAN_INTERVAL, DOWNLOAD_SCAN_INTERVAL, NZB_DOWNLOADER, USE_SABNZBD, SAB_HOST, SAB_USERNAME, SAB_PASSWORD, SAB_APIKEY, SAB_CATEGORY, SAB_PRIORITY, SAB_TO_MYLAR, SAB_DIRECTORY, USE_BLACKHOLE, BLACKHOLE_DIR, ADD_COMICS, COMIC_DIR, IMP_MOVE, IMP_RENAME, IMP_METADATA, \
-                USE_NZBGET, NZBGET_HOST, NZBGET_PORT, NZBGET_USERNAME, NZBGET_PASSWORD, NZBGET_CATEGORY, NZBGET_PRIORITY, NZBGET_DIRECTORY, NZBSU, NZBSU_UID, NZBSU_APIKEY, DOGNZB, DOGNZB_APIKEY, \
-                NEWZNAB, NEWZNAB_NAME, NEWZNAB_HOST, NEWZNAB_APIKEY, NEWZNAB_UID, NEWZNAB_ENABLED, EXTRA_NEWZNABS, NEWZNAB_EXTRA, \
-                ENABLE_TORZNAB, TORZNAB_NAME, TORZNAB_HOST, TORZNAB_APIKEY, TORZNAB_CATEGORY, \
-                EXPERIMENTAL, ALTEXPERIMENTAL, \
-                ENABLE_META, CMTAGGER_PATH, CT_TAG_CR, CT_TAG_CBL, CT_CBZ_OVERWRITE, UNRAR_CMD, UPDATE_ENDED, INDIE_PUB, BIGGIE_PUB, IGNORE_HAVETOTAL, SNATCHED_HAVETOTAL, PROVIDER_ORDER, \
+                DOWNLOAD_DIR, USENET_RETENTION, SEARCH_INTERVAL, NZB_STARTUP_SEARCH, INTERFACE, DUPECONSTRAINT, DDUMP, DUPLICATE_DUMP, AUTOWANT_ALL, AUTOWANT_UPCOMING, ZERO_LEVEL, ZERO_LEVEL_N, COMIC_COVER_LOCAL, HIGHCOUNT, \
+                DOWNLOAD_SCAN_INTERVAL, FOLDER_SCAN_LOG_VERBOSE, IMPORTLOCK, NZB_DOWNLOADER, USE_SABNZBD, SAB_HOST, SAB_USERNAME, SAB_PASSWORD, SAB_APIKEY, SAB_CATEGORY, SAB_PRIORITY, SAB_TO_MYLAR, SAB_DIRECTORY, USE_BLACKHOLE, BLACKHOLE_DIR, ADD_COMICS, COMIC_DIR, IMP_MOVE, IMP_RENAME, IMP_METADATA, \
+                USE_NZBGET, NZBGET_HOST, NZBGET_PORT, NZBGET_USERNAME, NZBGET_PASSWORD, NZBGET_CATEGORY, NZBGET_PRIORITY, NZBGET_DIRECTORY, NZBSU, NZBSU_UID, NZBSU_APIKEY, NZBSU_VERIFY, DOGNZB, DOGNZB_APIKEY, DOGNZB_VERIFY, \
+                NEWZNAB, NEWZNAB_NAME, NEWZNAB_HOST, NEWZNAB_APIKEY, NEWZNAB_VERIFY, NEWZNAB_UID, NEWZNAB_ENABLED, EXTRA_NEWZNABS, NEWZNAB_EXTRA, \
+                ENABLE_TORZNAB, TORZNAB_NAME, TORZNAB_HOST, TORZNAB_APIKEY, TORZNAB_CATEGORY, TORZNAB_VERIFY, EXPERIMENTAL, ALTEXPERIMENTAL, \
+                USE_RTORRENT, RTORRENT_HOST, RTORRENT_AUTHENTICATION, RTORRENT_RPC_URL, RTORRENT_SSL, RTORRENT_VERIFY, RTORRENT_CA_BUNDLE, RTORRENT_USERNAME, RTORRENT_PASSWORD, RTORRENT_STARTONLOAD, RTORRENT_LABEL, RTORRENT_DIRECTORY, \
+                USE_UTORRENT, UTORRENT_HOST, UTORRENT_USERNAME, UTORRENT_PASSWORD, UTORRENT_LABEL, USE_TRANSMISSION, TRANSMISSION_HOST, TRANSMISSION_USERNAME, TRANSMISSION_PASSWORD, TRANSMISSION_DIRECTORY, USE_DELUGE, DELUGE_HOST, DELUGE_USERNAME, DELUGE_PASSWORD, DELUGE_LABEL,  \
+                ENABLE_META, CMTAGGER_PATH, CBR2CBZ_ONLY, CT_TAG_CR, CT_TAG_CBL, CT_CBZ_OVERWRITE, UNRAR_CMD, CT_SETTINGSPATH, CMTAG_START_YEAR_AS_VOLUME, UPDATE_ENDED, INDIE_PUB, BIGGIE_PUB, IGNORE_HAVETOTAL, SNATCHED_HAVETOTAL, PROVIDER_ORDER, TMP_PROV, \
                 dbUpdateScheduler, searchScheduler, RSSScheduler, WeeklyScheduler, VersionScheduler, FolderMonitorScheduler, \
-                ENABLE_TORRENTS, MINSEEDS, TORRENT_LOCAL, LOCAL_WATCHDIR, TORRENT_SEEDBOX, SEEDBOX_HOST, SEEDBOX_PORT, SEEDBOX_USER, SEEDBOX_PASS, SEEDBOX_WATCHDIR, \
-                ENABLE_RSS, RSS_CHECKINTERVAL, RSS_LASTRUN, FAILED_DOWNLOAD_HANDLING, FAILED_AUTO, ENABLE_TORRENT_SEARCH, ENABLE_KAT, KAT_PROXY, ENABLE_32P, MODE_32P, KEYS_32P, RSSFEED_32P, USERNAME_32P, PASSWORD_32P, AUTHKEY_32P, PASSKEY_32P, FEEDINFO_32P, VERIFY_32P, SNATCHEDTORRENT_NOTIFY, \
+                ALLOW_PACKS, ENABLE_TORRENTS, TORRENT_DOWNLOADER, MINSEEDS, USE_WATCHDIR, TORRENT_LOCAL, LOCAL_WATCHDIR, TORRENT_SEEDBOX, SEEDBOX_HOST, SEEDBOX_PORT, SEEDBOX_USER, SEEDBOX_PASS, SEEDBOX_WATCHDIR, \
+                ENABLE_RSS, RSS_CHECKINTERVAL, RSS_LASTRUN, FAILED_DOWNLOAD_HANDLING, FAILED_AUTO, ENABLE_TORRENT_SEARCH, ENABLE_TPSE, TPSE_PROXY, TPSE_VERIFY, ENABLE_32P, SEARCH_32P, MODE_32P, KEYS_32P, RSSFEED_32P, USERNAME_32P, PASSWORD_32P, AUTHKEY_32P, PASSKEY_32P, FEEDINFO_32P, VERIFY_32P, SNATCHEDTORRENT_NOTIFY, \
                 PROWL_ENABLED, PROWL_PRIORITY, PROWL_KEYS, PROWL_ONSNATCH, NMA_ENABLED, NMA_APIKEY, NMA_PRIORITY, NMA_ONSNATCH, PUSHOVER_ENABLED, PUSHOVER_PRIORITY, PUSHOVER_APIKEY, PUSHOVER_USERKEY, PUSHOVER_ONSNATCH, BOXCAR_ENABLED, BOXCAR_ONSNATCH, BOXCAR_TOKEN, \
                 PUSHBULLET_ENABLED, PUSHBULLET_APIKEY, PUSHBULLET_DEVICEID, PUSHBULLET_ONSNATCH, LOCMOVE, NEWCOM_DIR, FFTONEWCOM_DIR, \
-                PREFERRED_QUALITY, MOVE_FILES, RENAME_FILES, LOWERCASE_FILENAMES, USE_MINSIZE, MINSIZE, USE_MAXSIZE, MAXSIZE, CORRECT_METADATA, FOLDER_FORMAT, FILE_FORMAT, REPLACE_CHAR, REPLACE_SPACES, ADD_TO_CSV, CVINFO, LOG_LEVEL, POST_PROCESSING, POST_PROCESSING_SCRIPT, SEARCH_DELAY, GRABBAG_DIR, READ2FILENAME, SEND2READ, TAB_ENABLE, TAB_HOST, TAB_USER, TAB_PASS, TAB_DIRECTORY, STORYARCDIR, COPY2ARCDIR, CVURL, CHECK_FOLDER, ENABLE_CHECK_FOLDER, \
-                COMIC_LOCATION, QUAL_ALTVERS, QUAL_SCANNER, QUAL_TYPE, QUAL_QUALITY, ENABLE_EXTRA_SCRIPTS, EXTRA_SCRIPTS, ENABLE_PRE_SCRIPTS, PRE_SCRIPTS, PULLNEW, ALT_PULL, COUNT_ISSUES, COUNT_HAVES, COUNT_COMICS, SYNO_FIX, CHMOD_FILE, CHMOD_DIR, CHOWNER, CHGROUP, ANNUALS_ON, CV_ONLY, CV_ONETIMER, WEEKFOLDER, UMASK
+                PREFERRED_QUALITY, MOVE_FILES, RENAME_FILES, LOWERCASE_FILENAMES, USE_MINSIZE, MINSIZE, USE_MAXSIZE, MAXSIZE, CORRECT_METADATA, \
+                FOLDER_FORMAT, FILE_FORMAT, REPLACE_CHAR, REPLACE_SPACES, ADD_TO_CSV, CVINFO, LOG_LEVEL, POST_PROCESSING, POST_PROCESSING_SCRIPT, \
+                FILE_OPTS, SEARCH_DELAY, GRABBAG_DIR, READ2FILENAME, SEND2READ, MAINTAINSERIESFOLDER, TAB_ENABLE, TAB_HOST, TAB_USER, TAB_PASS, TAB_DIRECTORY, \
+                STORYARCDIR, COPY2ARCDIR, ARC_FOLDERFORMAT, ARC_FILEOPS, CVURL, CHECK_FOLDER, ENABLE_CHECK_FOLDER, \
+                COMIC_LOCATION, QUAL_ALTVERS, QUAL_SCANNER, QUAL_TYPE, QUAL_QUALITY, ENABLE_EXTRA_SCRIPTS, EXTRA_SCRIPTS, ENABLE_PRE_SCRIPTS, PRE_SCRIPTS, PULLNEW, ALT_PULL, PULLBYFILE, COUNT_ISSUES, COUNT_HAVES, COUNT_COMICS, \
+                SYNO_FIX, ENFORCE_PERMS, CHMOD_FILE, CHMOD_DIR, CHOWNER, CHGROUP, ANNUALS_ON, CV_ONLY, CV_ONETIMER, CURRENT_WEEKNUMBER, CURRENT_YEAR, PULL_REFRESH, WEEKFOLDER, WEEKFOLDER_LOC, WEEKFOLDER_FORMAT, UMASK, \
+                TELEGRAM_ENABLED, TELEGRAM_TOKEN, TELEGRAM_USERID
 
         if __INITIALIZED__:
             return False
@@ -435,6 +518,8 @@ def initialize():
         CheckSection('Newznab')
         CheckSection('Torznab')
         CheckSection('Torrents')
+        CheckSection('uTorrent')
+        CheckSection('Transmission')
         # Set global variables based on config file or use defaults
         try:
             HTTP_PORT = check_setting_int(CFG, 'General', 'http_port', 8090)
@@ -448,19 +533,20 @@ def initialize():
             HTTPS_CERT = os.path.join(DATA_DIR, 'server.crt')
         if HTTPS_KEY == '':
             HTTPS_KEY = os.path.join(DATA_DIR, 'server.key')
+        if HTTPS_CHAIN == '':
+            HTTPS_CHAIN = os.path.join(DATA_DIR, 'chain.pem')
 
         CONFIG_VERSION = check_setting_str(CFG, 'General', 'config_version', '')
         DBCHOICE = check_setting_str(CFG, 'General', 'dbchoice', 'sqlite3')
         DBUSER = check_setting_str(CFG, 'General', 'dbuser', '')
         DBPASS = check_setting_str(CFG, 'General', 'dbpass', '')
         DBNAME = check_setting_str(CFG, 'General', 'dbname', '')
+        DYNAMIC_UPDATE = check_setting_int(CFG, 'General', 'dynamic_update', 0)
 
         COMICVINE_API = check_setting_str(CFG, 'General', 'comicvine_api', '')
         if not COMICVINE_API:
             COMICVINE_API = None
-        CVAPI_COUNT = check_setting_int(CFG, 'General', 'cvapi_count', 0)
-        CVAPI_TIME = check_setting_str(CFG, 'General', 'cvapi_time', '')
-        helpers.cvapi_check()  #get the values logged in.
+        CVAPI_RATE = check_setting_int(CFG, 'General', 'cvapi_rate', 2)
         HTTP_HOST = check_setting_str(CFG, 'General', 'http_host', '0.0.0.0')
         HTTP_USERNAME = check_setting_str(CFG, 'General', 'http_username', '')
         HTTP_PASSWORD = check_setting_str(CFG, 'General', 'http_password', '')
@@ -468,54 +554,53 @@ def initialize():
         ENABLE_HTTPS = bool(check_setting_int(CFG, 'General', 'enable_https', 0))
         HTTPS_CERT = check_setting_str(CFG, 'General', 'https_cert', '')
         HTTPS_KEY = check_setting_str(CFG, 'General', 'https_key', '')
+        HTTPS_CHAIN = check_setting_str(CFG, 'General', 'https_chain', '')
         HTTPS_FORCE_ON = bool(check_setting_int(CFG, 'General', 'https_force_on', 0))
         HOST_RETURN = check_setting_str(CFG, 'General', 'host_return', '')
         API_ENABLED = bool(check_setting_int(CFG, 'General', 'api_enabled', 0))
         API_KEY = check_setting_str(CFG, 'General', 'api_key', '')
         LAUNCH_BROWSER = bool(check_setting_int(CFG, 'General', 'launch_browser', 1))
         AUTO_UPDATE = bool(check_setting_int(CFG, 'General', 'auto_update', 0))
-        LOGVERBOSE = bool(check_setting_int(CFG, 'General', 'logverbose', 0))
-        if LOGVERBOSE:
-            VERBOSE = 2
-        else:
-            VERBOSE = 1
         MAX_LOGSIZE = check_setting_int(CFG, 'General', 'max_logsize', 1000000)
         if not MAX_LOGSIZE:
             MAX_LOGSIZE = 1000000
         GIT_PATH = check_setting_str(CFG, 'General', 'git_path', '')
         LOG_DIR = check_setting_str(CFG, 'General', 'log_dir', '')
-        if not CACHE_DIR:
-            CACHE_DIR = check_setting_str(CFG, 'General', 'cache_dir', '')
+        CACHE_DIR = check_setting_str(CFG, 'General', 'cache_dir', '')
 
         CHECK_GITHUB = bool(check_setting_int(CFG, 'General', 'check_github', 1))
         CHECK_GITHUB_ON_STARTUP = bool(check_setting_int(CFG, 'General', 'check_github_on_startup', 1))
         CHECK_GITHUB_INTERVAL = check_setting_int(CFG, 'General', 'check_github_interval', 360)
         GIT_USER = check_setting_str(CFG, 'General', 'git_user', 'evilhero')
+        GIT_BRANCH = check_setting_str(CFG,'General', 'git_branch', 'master')
 
         DESTINATION_DIR = check_setting_str(CFG, 'General', 'destination_dir', '')
         MULTIPLE_DEST_DIRS = check_setting_str(CFG, 'General', 'multiple_dest_dirs', '')
         CREATE_FOLDERS = bool(check_setting_int(CFG, 'General', 'create_folders', 1))
         DELETE_REMOVE_DIR = bool(check_setting_int(CFG, 'General', 'delete_remove_dir', 0))
+        ENFORCE_PERMS = bool(check_setting_int(CFG, 'General', 'enforce_perms', 1))
         CHMOD_DIR = check_setting_str(CFG, 'General', 'chmod_dir', '0777')
         CHMOD_FILE = check_setting_str(CFG, 'General', 'chmod_file', '0660')
         CHOWNER = check_setting_str(CFG, 'General', 'chowner', '')
         CHGROUP = check_setting_str(CFG, 'General', 'chgroup', '')
         USENET_RETENTION = check_setting_int(CFG, 'General', 'usenet_retention', '1500')
-        ALT_PULL = bool(check_setting_int(CFG, 'General', 'alt_pull', 0))
+        ALT_PULL = check_setting_int(CFG, 'General', 'alt_pull', 0)
         SEARCH_INTERVAL = check_setting_int(CFG, 'General', 'search_interval', 360)
         NZB_STARTUP_SEARCH = bool(check_setting_int(CFG, 'General', 'nzb_startup_search', 0))
-        LIBRARYSCAN = bool(check_setting_int(CFG, 'General', 'libraryscan', 1))
-        LIBRARYSCAN_INTERVAL = check_setting_int(CFG, 'General', 'libraryscan_interval', 300)
         ADD_COMICS = bool(check_setting_int(CFG, 'General', 'add_comics', 0))
         COMIC_DIR = check_setting_str(CFG, 'General', 'comic_dir', '')
         IMP_MOVE = bool(check_setting_int(CFG, 'General', 'imp_move', 0))
         IMP_RENAME = bool(check_setting_int(CFG, 'General', 'imp_rename', 0))
         IMP_METADATA = bool(check_setting_int(CFG, 'General', 'imp_metadata', 0))
         DOWNLOAD_SCAN_INTERVAL = check_setting_int(CFG, 'General', 'download_scan_interval', 5)
+        FOLDER_SCAN_LOG_VERBOSE = check_setting_int(CFG, 'General', 'folder_scan_log_verbose', 0)
         CHECK_FOLDER = check_setting_str(CFG, 'General', 'check_folder', '')
         ENABLE_CHECK_FOLDER = bool(check_setting_int(CFG, 'General', 'enable_check_folder', 0))
         INTERFACE = check_setting_str(CFG, 'General', 'interface', 'default')
         DUPECONSTRAINT = check_setting_str(CFG, 'General', 'dupeconstraint', 'filesize')
+        DDUMP = bool(check_setting_int(CFG, 'General', 'ddump', 0))
+        DUPLICATE_DUMP = check_setting_str(CFG, 'General', 'duplicate_dump', '')
+        PULL_REFRESH = check_setting_str(CFG, 'General', 'pull_refresh', '')
         AUTOWANT_ALL = bool(check_setting_int(CFG, 'General', 'autowant_all', 0))
         AUTOWANT_UPCOMING = bool(check_setting_int(CFG, 'General', 'autowant_upcoming', 1))
         COMIC_COVER_LOCAL = bool(check_setting_int(CFG, 'General', 'comic_cover_local', 0))
@@ -535,12 +620,15 @@ def initialize():
         IGNORE_HAVETOTAL = bool(check_setting_int(CFG, 'General', 'ignore_havetotal', 0))
         SNATCHED_HAVETOTAL = bool(check_setting_int(CFG, 'General', 'snatched_havetotal', 0))
         SYNO_FIX = bool(check_setting_int(CFG, 'General', 'syno_fix', 0))
+        ALLOW_PACKS = bool(check_setting_int(CFG, 'General', 'allow_packs', 0))
         SEARCH_DELAY = check_setting_int(CFG, 'General', 'search_delay', 1)
         GRABBAG_DIR = check_setting_str(CFG, 'General', 'grabbag_dir', '')
         if not GRABBAG_DIR:
             #default to ComicLocation
-            GRABBAG_DIR = DESTINATION_DIR
+            GRABBAG_DIR = os.path.join(DESTINATION_DIR, 'GrabBag')
         WEEKFOLDER = bool(check_setting_int(CFG, 'General', 'weekfolder', 0))
+        WEEKFOLDER_LOC = check_setting_str(CFG, 'General', 'weekfolder_loc', '')
+        WEEKFOLDER_FORMAT = bool(check_setting_int(CFG, 'General', 'weekfolder_format', 0))
         LOCMOVE = bool(check_setting_int(CFG, 'General', 'locmove', 0))
         if LOCMOVE is None:
             LOCMOVE = 0
@@ -548,9 +636,10 @@ def initialize():
         FFTONEWCOM_DIR = bool(check_setting_int(CFG, 'General', 'fftonewcom_dir', 0))
         if FFTONEWCOM_DIR is None:
             FFTONEWCOM_DIR = 0
-        HIGHCOUNT = check_setting_str(CFG, 'General', 'highcount', '')
+        HIGHCOUNT = check_setting_int(CFG, 'General', 'highcount', 0)
         if not HIGHCOUNT: HIGHCOUNT = 0
         READ2FILENAME = bool(check_setting_int(CFG, 'General', 'read2filename', 0))
+        MAINTAINSERIESFOLDER = bool(check_setting_int(CFG, 'General', 'maintainseriesfolder', 0))
         SEND2READ = bool(check_setting_int(CFG, 'General', 'send2read', 0))
         TAB_ENABLE = bool(check_setting_int(CFG, 'General', 'tab_enable', 0))
         TAB_HOST = check_setting_str(CFG, 'General', 'tab_host', '')
@@ -559,6 +648,10 @@ def initialize():
         TAB_DIRECTORY = check_setting_str(CFG, 'General', 'tab_directory', '')
         STORYARCDIR = bool(check_setting_int(CFG, 'General', 'storyarcdir', 0))
         COPY2ARCDIR = bool(check_setting_int(CFG, 'General', 'copy2arcdir', 0))
+        ARC_FOLDERFORMAT = check_setting_str(CFG, 'General', 'arc_folderformat', '$arc ($spanyears)')
+        if any([ARC_FOLDERFORMAT is None, ARC_FOLDERFORMAT == 'None']):
+            ARC_FOLDERFORMAT = '$arc ($spanyears)'
+        ARC_FILEOPS = check_setting_str(CFG,'General', 'arc_fileops', 'copy')
         PROWL_ENABLED = bool(check_setting_int(CFG, 'Prowl', 'prowl_enabled', 0))
         PROWL_KEYS = check_setting_str(CFG, 'Prowl', 'prowl_keys', '')
         PROWL_ONSNATCH = bool(check_setting_int(CFG, 'Prowl', 'prowl_onsnatch', 0))
@@ -583,6 +676,11 @@ def initialize():
         PUSHBULLET_APIKEY = check_setting_str(CFG, 'PUSHBULLET', 'pushbullet_apikey', '')
         PUSHBULLET_DEVICEID = check_setting_str(CFG, 'PUSHBULLET', 'pushbullet_deviceid', '')
         PUSHBULLET_ONSNATCH = bool(check_setting_int(CFG, 'PUSHBULLET', 'pushbullet_onsnatch', 0))
+
+        TELEGRAM_ENABLED = bool(check_setting_int(CFG, 'TELEGRAM', 'telegram_enabled', 0))
+        TELEGRAM_TOKEN = check_setting_str(CFG, 'TELEGRAM', 'telegram_token', '')
+        TELEGRAM_USERID = check_setting_str(CFG, 'TELEGRAM', 'telegram_userid', '')
+        TELEGRAM_ONSNATCH = bool(check_setting_int(CFG, 'TELEGRAM', 'telegram_onsnatch', 0))
 
         USE_MINSIZE = bool(check_setting_int(CFG, 'General', 'use_minsize', 0))
         MINSIZE = check_setting_str(CFG, 'General', 'minsize', '')
@@ -609,18 +707,27 @@ def initialize():
         PRE_SCRIPTS = check_setting_str(CFG, 'General', 'pre_scripts', '')
         POST_PROCESSING = bool(check_setting_int(CFG, 'General', 'post_processing', 1))
         POST_PROCESSING_SCRIPT = check_setting_str(CFG, 'General', 'post_processing_script', '')
-
-        ENABLE_META = bool(check_setting_int(CFG, 'General', 'enable_meta', 0))
-        CMTAGGER_PATH = check_setting_str(CFG, 'General', 'cmtagger_path', '')
+        FILE_OPTS = check_setting_str(CFG, 'General', 'file_opts', 'move')
+        if any([FILE_OPTS == 'hardlink', FILE_OPTS == 'softlink']):
+            #we can't have metatagging enabled with hard/soft linking. Forcibly disable it here just in case it's set on load.
+            ENABLE_META = 0
+        else:
+            ENABLE_META = bool(check_setting_int(CFG, 'General', 'enable_meta', 0))      
+        CBR2CBZ_ONLY = bool(check_setting_int(CFG, 'General', 'cbr2cbz_only', 0))
         CT_TAG_CR = bool(check_setting_int(CFG, 'General', 'ct_tag_cr', 1))
         CT_TAG_CBL = bool(check_setting_int(CFG, 'General', 'ct_tag_cbl', 1))
         CT_CBZ_OVERWRITE = bool(check_setting_int(CFG, 'General', 'ct_cbz_overwrite', 0))
         UNRAR_CMD = check_setting_str(CFG, 'General', 'unrar_cmd', '')
+        CMTAG_START_YEAR_AS_VOLUME = bool(check_setting_int(CFG, 'General', 'cmtag_start_year_as_volume', 0))
 
         UPCOMING_SNATCHED = bool(check_setting_int(CFG, 'General', 'upcoming_snatched', 1))
         UPDATE_ENDED = bool(check_setting_int(CFG, 'General', 'update_ended', 0))
         INDIE_PUB = check_setting_str(CFG, 'General', 'indie_pub', '75')
         BIGGIE_PUB = check_setting_str(CFG, 'General', 'biggie_pub', '55')
+
+        BLACKLISTED_PUBLISHERS = check_setting_str(CFG, 'General', 'blacklisted_publishers', [], log=False)
+        if len(BLACKLISTED_PUBLISHERS) == 0 or BLACKLISTED_PUBLISHERS == 'None':
+            BLACKLISTED_PUBLISHERS = None
 
         ENABLE_RSS = bool(check_setting_int(CFG, 'General', 'enable_rss', 1))
         RSS_CHECKINTERVAL = check_setting_str(CFG, 'General', 'rss_checkinterval', '20')
@@ -640,8 +747,9 @@ def initialize():
         SEEDBOX_WATCHDIR = check_setting_str(CFG, 'Torrents', 'seedbox_watchdir', '')
 
         ENABLE_TORRENT_SEARCH = bool(check_setting_int(CFG, 'Torrents', 'enable_torrent_search', 0))
-        ENABLE_KAT = bool(check_setting_int(CFG, 'Torrents', 'enable_kat', 0))
-        KAT_PROXY = check_setting_str(CFG, 'Torrents', 'kat_proxy', '')
+        ENABLE_TPSE = bool(check_setting_int(CFG, 'Torrents', 'enable_tpse', 0))
+        TPSE_PROXY = check_setting_str(CFG, 'Torrents', 'tpse_proxy', '')
+        TPSE_VERIFY = bool(check_setting_int(CFG, 'Torrents', 'tpse_verify', 1))
 
         ENABLE_CBT = check_setting_str(CFG, 'Torrents', 'enable_cbt', '-1')
         if ENABLE_CBT != '-1':
@@ -649,6 +757,7 @@ def initialize():
             print 'Converting CBT settings to 32P - ENABLE_32P: ' + str(ENABLE_32P)
         else:
             ENABLE_32P = bool(check_setting_int(CFG, 'Torrents', 'enable_32p', 0))
+        SEARCH_32P = bool(check_setting_int(CFG, 'Torrents', 'search_32p', 0))
 
         MODE_32P = check_setting_int(CFG, 'Torrents', 'mode_32p', 0)
         #legacy support of older config - reload into old values for consistency.
@@ -670,6 +779,18 @@ def initialize():
         PASSWORD_32P = check_setting_str(CFG, 'Torrents', 'password_32p', '')
         VERIFY_32P = bool(check_setting_int(CFG, 'Torrents', 'verify_32p', 1))
         SNATCHEDTORRENT_NOTIFY = bool(check_setting_int(CFG, 'Torrents', 'snatchedtorrent_notify', 0))
+        
+        RTORRENT_HOST = check_setting_str(CFG, 'Torrents', 'rtorrent_host', '')
+        RTORRENT_AUTHENTICATION = check_setting_str(CFG, 'Torrents', 'rtorrent_authentication', 'basic')
+        RTORRENT_RPC_URL = check_setting_str(CFG, 'Torrents', 'rtorrent_rpc_url', '')
+        RTORRENT_SSL = bool(check_setting_int(CFG, 'Torrents', 'rtorrent_ssl', 0))
+        RTORRENT_VERIFY = bool(check_setting_int(CFG, 'Torrents', 'rtorrent_verify', 0))
+        RTORRENT_CA_BUNDLE = check_setting_str(CFG, 'Torrents', 'rtorrent_ca_bundle', '')
+        RTORRENT_USERNAME = check_setting_str(CFG, 'Torrents', 'rtorrent_username', '')
+        RTORRENT_PASSWORD = check_setting_str(CFG, 'Torrents', 'rtorrent_password', '')
+        RTORRENT_STARTONLOAD = bool(check_setting_int(CFG, 'Torrents', 'rtorrent_startonload', 0))
+        RTORRENT_LABEL = check_setting_str(CFG, 'Torrents', 'rtorrent_label', '')
+        RTORRENT_DIRECTORY = check_setting_str(CFG, 'Torrents', 'rtorrent_directory', '')
 
         #this needs to have it's own category - for now General will do.
         NZB_DOWNLOADER = check_setting_int(CFG, 'General', 'nzb_downloader', 0)
@@ -712,26 +833,62 @@ def initialize():
 
         PR_NUM = 0  # provider counter here (used for provider orders)
         PR = []
+        TORRENT_DOWNLOADER = check_setting_int(CFG, 'General', 'torrent_downloader', 0)
+        if TORRENT_DOWNLOADER == 0:
+            USE_WATCHDIR = True
+        elif TORRENT_DOWNLOADER == 1:
+            TORRENT_LOCAL = False
+            USE_UTORRENT = True
+        elif TORRENT_DOWNLOADER == 2:
+            TORRENT_LOCAL = False
+            USE_RTORRENT = True
+        elif TORRENT_DOWNLOADER == 3:
+            TORRENT_LOCAL = False
+            USE_TRANSMISSION = True
+        elif TORRENT_DOWNLOADER == 4:
+            TORRENT_LOCAL = False
+            USE_DELUGE = True
+        else:
+                TORRENT_DOWNLOADER = 0
+                USE_WATCHDIR = True
+                TORRENT_LOCAL = True
+        #USE_UTORRENT = bool(check_setting_int(CFG, 'uTorrent', 'use_utorrent', 0))
+        UTORRENT_HOST = check_setting_str(CFG, 'uTorrent', 'utorrent_host', '')
+        UTORRENT_USERNAME = check_setting_str(CFG, 'uTorrent', 'utorrent_username', '')
+        UTORRENT_PASSWORD = check_setting_str(CFG, 'uTorrent', 'utorrent_password', '')
+        UTORRENT_LABEL = check_setting_str(CFG, 'uTorrent', 'utorrent_label', '')
 
+        TRANSMISSION_HOST = check_setting_str(CFG, 'Transmission', 'transmission_host', '')
+        TRANSMISSION_USERNAME = check_setting_str(CFG, 'Transmission', 'transmission_username', '')
+        TRANSMISSION_PASSWORD = check_setting_str(CFG, 'Transmission', 'transmission_password', '')
+        TRANSMISSION_DIRECTORY = check_setting_str(CFG, 'Transmission', 'transmission_directory', '')
+
+        DELUGE_HOST = check_setting_str(CFG, 'Deluge', 'deluge_host', '')
+        DELUGE_USERNAME = check_setting_str(CFG, 'Deluge', 'deluge_username', '')
+        DELUGE_PASSWORD = check_setting_str(CFG, 'Deluge', 'deluge_password', '')
+        DELUGE_LABEL = check_setting_str(CFG, 'Deluge', 'deluge_label', '')
+        
         #add torrents to provider counter.
         if ENABLE_TORRENT_SEARCH:
             if ENABLE_32P:
                 PR.append('32p')
                 PR_NUM +=1
-            if ENABLE_KAT:
-                PR.append('kat')
+            if ENABLE_TPSE:
+                PR.append('tpse')
                 PR_NUM +=1
 
 
         NZBSU = bool(check_setting_int(CFG, 'NZBsu', 'nzbsu', 0))
         NZBSU_UID = check_setting_str(CFG, 'NZBsu', 'nzbsu_uid', '')
         NZBSU_APIKEY = check_setting_str(CFG, 'NZBsu', 'nzbsu_apikey', '')
+        NZBSU_VERIFY = bool(check_setting_int(CFG, 'NZBsu', 'nzbsu_verify', 1))
         if NZBSU:
             PR.append('nzb.su')
             PR_NUM +=1
 
         DOGNZB = bool(check_setting_int(CFG, 'DOGnzb', 'dognzb', 0))
         DOGNZB_APIKEY = check_setting_str(CFG, 'DOGnzb', 'dognzb_apikey', '')
+        DOGNZB_VERIFY = bool(check_setting_int(CFG, 'DOGnzb', 'dognzb_verify', 1))
         if DOGNZB:
             PR.append('dognzb')
             PR_NUM +=1
@@ -746,6 +903,8 @@ def initialize():
         TORZNAB_NAME = check_setting_str(CFG, 'Torznab', 'torznab_name', '')
         TORZNAB_HOST = check_setting_str(CFG, 'Torznab', 'torznab_host', '')
         TORZNAB_APIKEY = check_setting_str(CFG, 'Torznab', 'torznab_apikey', '')
+        TORZNAB_VERIFY = bool(check_setting_int(CFG, 'Torznab', 'torznab_verify', 0))
+
         TORZNAB_CATEGORY = check_setting_str(CFG, 'Torznab', 'torznab_category', '')
         if ENABLE_TORZNAB:
             PR.append('Torznab')
@@ -756,7 +915,7 @@ def initialize():
         NEWZNAB = bool(check_setting_int(CFG, 'Newznab', 'newznab', 0))
 
         if CONFIG_VERSION:
-            NEWZNAB_HOST = check_setting_str(CFG, 'Newznab', 'newznab_host', '')
+            NEWZNAB_HOST = helpers.clean_url(check_setting_str(CFG, 'Newznab', 'newznab_host', ''))
             NEWZNAB_APIKEY = check_setting_str(CFG, 'Newznab', 'newznab_apikey', '')
             NEWZNAB_UID = 1
             NEWZNAB_ENABLED = bool(check_setting_int(CFG, 'Newznab', 'newznab_enabled', 1))
@@ -766,6 +925,8 @@ def initialize():
         elif CONFIG_VERSION == '5':
             NEWZNAB_UID = check_setting_str(CFG, 'Newznab', 'newznab_uid', '')
             NEWZNAB_NAME = check_setting_str(CFG, 'Newznab', 'newznab_name', '')
+        elif CONFIG_VERSION == '6':
+            NEWZNAB_VERIFY = bool(check_setting_int(CFG, 'Newznab', 'newznab_verify', 0))
 
         # this gets nasty
         # if configv is != 4, then the NewznabName doesn't exist so we need to create and add it and
@@ -778,32 +939,37 @@ def initialize():
             EN_NUM = 4   #EN_NUM is the number of iterations of itertools to use
         elif CONFIG_VERSION == '5':
             EN_NUM = 5   #addition of Newznab UID
+        elif CONFIG_VERSION == '6':
+            EN_NUM = 6
         else:
             EN_NUM = 3
 
         EXTRA_NEWZNABS = list(itertools.izip(*[itertools.islice(flattened_newznabs, i, None, EN_NUM) for i in range(EN_NUM)]))
 
         #if ConfigV3 add the nzb_name to it..
-        if CONFIG_VERSION != '5':   #just bump it up to V5 and throw in the UID too.
+        #if ConfigV3 add the nzb_name to it..
+        if CONFIG_VERSION != '6':   #just bump it up to V6 and throw in the VERIFY too.
             ENABS = []
             for en in EXTRA_NEWZNABS:
                 #set newznabname to newznab address initially so doesn't bomb.
                 if CONFIG_VERSION == '4':
-                    ENABS.append((en[0], en[1], en[2], '1', en[3]))  #0=name,1=host,2=api,3=enabled/disabled
+                    ENABS.append((en[0], en[1], '0', en[2], '1', en[3]))  #0=name,1=host,2=api,3=enabled/disabled
+                elif CONFIG_VERSION == '5':
+                    ENABS.append((en[0], en[1], '0', en[2], en[3], en[4]))  #0=name,1=host,2=api,3=enabled/disabled
                 else:
-                    ENABS.append((en[0], en[0], en[1], '1', en[2]))  #0=host,1=api,2=enabled/disabled
+                    ENABS.append((en[0], en[0], '0', en[1], '1', en[2]))  #0=name,1=host,2=api,3=uid,4=enabled/disabled
             #now we hammer the EXTRA_NEWZNABS with the corrected version
             EXTRA_NEWZNABS = ENABS
             #update the configV and write the config.
-            CONFIG_VERSION = '5'
+            CONFIG_VERSION = '6'
             config_write()
 
         #to counteract the loss of the 1st newznab entry because of a switch, let's rewrite to the tuple
         if NEWZNAB_HOST and CONFIG_VERSION:
-            EXTRA_NEWZNABS.append((NEWZNAB_NAME, NEWZNAB_HOST, NEWZNAB_APIKEY, NEWZNAB_UID, int(NEWZNAB_ENABLED)))
+            EXTRA_NEWZNABS.append((NEWZNAB_NAME, helpers.clean_url(NEWZNAB_HOST), NEWZNAB_VERIFY, NEWZNAB_APIKEY, NEWZNAB_UID, int(NEWZNAB_ENABLED)))
             #PR_NUM +=1
             # Need to rewrite config here and bump up config version
-            CONFIG_VERSION = '5'
+            CONFIG_VERSION = '6'
             config_write()
 
         #print 'PR_NUM:' + str(PR_NUM)
@@ -811,7 +977,7 @@ def initialize():
             for ens in EXTRA_NEWZNABS:
                 #print ens[0]
                 #print 'enabled:' + str(ens[4])
-                if ens[4] == '1': # if newznabs are enabled
+                if ens[5] == '1': # if newznabs are enabled
                     if ens[0] == "":
                         PR.append(ens[1])
                     else:
@@ -894,28 +1060,28 @@ def initialize():
             from mylar.helpers import replace_all
 
             file_values = {'Issue':        '$Issue',
-                            'Title':        '$Title',
-                            'Series':       '$Series',
-                            'Year':         '$Year',
-                            'title':        '$title',
-                            'series':       '$series',
-                            'year':         '$year'
+                           'Title':        '$Title',
+                           'Series':       '$Series',
+                           'Year':         '$Year',
+                           'title':        '$title',
+                           'series':       '$series',
+                           'year':         '$year'
                             }
             folder_values = {'Series':       '$Series',
-                                'Publisher':    '$Publisher',
-                                'Year':         '$Year',
-                                'First':        '$First',
-                                'series':       '$series',
-                                'publisher':    '$publisher',
-                                'year':         '$year',
-                                'first':        '$first'
+                             'Publisher':    '$Publisher',
+                             'Year':         '$Year',
+                             'First':        '$First',
+                             'series':       '$series',
+                             'publisher':    '$publisher',
+                             'year':         '$year',
+                             'first':        '$first'
                             }
             FILE_FORMAT = replace_all(FILE_FORMAT, file_values)
             FOLDER_FORMAT = replace_all(FOLDER_FORMAT, folder_values)
 
             CONFIG_VERSION = '2'
 
-        if 'http://' not in SAB_HOST[:7] and 'https://' not in SAB_HOST[:8]:
+        if all(['http://' not in SAB_HOST[:7], 'https://' not in SAB_HOST[:8], SAB_HOST != '', SAB_HOST is not None]):
             SAB_HOST = 'http://' + SAB_HOST
 
         if not LOG_DIR:
@@ -925,11 +1091,11 @@ def initialize():
             try:
                 os.makedirs(LOG_DIR)
             except OSError:
-                if VERBOSE:
+                if not QUIET:
                     print 'Unable to create the log directory. Logging to screen only.'
 
         # Start the logger, silence console logging if we need to
-        logger.initLogger(verbose=VERBOSE) #logger.mylar_log.initLogger(verbose=VERBOSE)
+        logger.initLogger(console=not QUIET, log_dir=LOG_DIR, verbose=VERBOSE) #logger.mylar_log.initLogger(verbose=VERBOSE)
 
         #try to get the local IP using socket. Get this on every startup so it's at least current for existing session.
         import socket
@@ -974,18 +1140,22 @@ def initialize():
 
         USER_AGENT = 'Mylar/' +str(hash) +'(' +vers +') +http://www.github.com/evilhero/mylar/'
 
+        CV_HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1'}
+
         # verbatim DB module.
         logger.info('[DB Module] Loading : ' + DBCHOICE + ' as the database module to use.')
 
+        logger.info('[Cache Check] Cache directory currently set to : ' + CACHE_DIR)
         # Put the cache dir in the data dir for now
         if not CACHE_DIR:
             CACHE_DIR = os.path.join(str(DATA_DIR), 'cache')
+            logger.info('[Cache Check] Cache directory not found in configuration. Defaulting location to : ' + CACHE_DIR)
 
         if not os.path.exists(CACHE_DIR):
             try:
                os.makedirs(CACHE_DIR)
             except OSError:
-                logger.error('Could not create cache dir. Check permissions of datadir: ' + DATA_DIR)
+                logger.error('[Cache Check] Could not create cache dir. Check permissions of datadir: ' + DATA_DIR)
 
         #ComicVine API Check
         if COMICVINE_API is None or COMICVINE_API == '':
@@ -996,6 +1166,10 @@ def initialize():
             logger.info('Search interval too low. Resetting to 6 hour minimum')
             SEARCH_INTERVAL = 360
 
+        # set the current week for the pull-list
+        todaydate = datetime.datetime.today()
+        CURRENT_WEEKNUMBER = todaydate.strftime("%U")
+        CURRENT_YEAR = todaydate.strftime("%Y")
 
         # Initialize the database
         logger.info('Checking to see if the database has all tables....')
@@ -1034,7 +1208,25 @@ def initialize():
                 logger.info('Synology Parsing Fix already implemented. No changes required at this time.')
 
         #set the default URL for ComicVine API here.
-        CVURL = 'http://api.comicvine.com/'
+        CVURL = 'http://comicvine.gamespot.com/api/'
+
+        #comictagger - force to use included version if option is enabled.
+        if ENABLE_META:
+            CMTAGGER_PATH = PROG_DIR
+            #we need to make sure the default folder setting for the comictagger settings exists so things don't error out
+            CT_SETTINGSPATH = os.path.join(PROG_DIR, 'lib', 'comictaggerlib', 'ct_settings')
+            logger.info('Setting ComicTagger settings default path to : ' + CT_SETTINGSPATH)
+
+            if os.path.exists(CT_SETTINGSPATH):
+                logger.info('ComicTagger settings location exists.')
+            else:
+                try:
+                    os.mkdir(CT_SETTINGSPATH)
+                except OSError,e:
+                    if e.errno != errno.EEXIST:
+                        logger.error('Unable to create setting directory for ComicTagger. This WILL cause problems when tagging.')
+                else:
+                    logger.info('Successfully created ComicTagger Settings location.')
 
         if LOCMOVE:
             helpers.updateComicLocation()
@@ -1067,8 +1259,13 @@ def initialize():
                                            runImmediately=True,
                                            delay=30)
 
+        if ALT_PULL == 2:
+            weektimer = 4
+        else:
+            weektimer = 24
+
         WeeklyScheduler = scheduler.Scheduler(weeklypullit.Weekly(),
-                                              cycleTime=datetime.timedelta(hours=24),
+                                              cycleTime=datetime.timedelta(hours=weektimer),
                                               threadName="WEEKLYCHECK",
                                               runImmediately=True,
                                               delay=10)
@@ -1084,6 +1281,7 @@ def initialize():
                                                      threadName="FOLDERMONITOR",
                                                      runImmediately=True,
                                                      delay=60)
+
 
         # Store the original umask
         UMASK = os.umask(0)
@@ -1167,16 +1365,13 @@ def config_write():
     new_config['General']['dbuser'] = DBUSER
     new_config['General']['dbpass'] = DBPASS
     new_config['General']['dbname'] = DBNAME
-
+    new_config['General']['dynamic_update'] = DYNAMIC_UPDATE
     if COMICVINE_API is None or COMICVINE_API == '':
         new_config['General']['comicvine_api'] = COMICVINE_API
     else:
         new_config['General']['comicvine_api'] = COMICVINE_API.strip()
-    #write the current CV API time / count here so it's persistent through reboots/restarts.
-    #get the current values.
-    helpers.cvapi_check()
-    new_config['General']['cvapi_count'] = CVAPI_COUNT
-    new_config['General']['cvapi_time'] = CVAPI_TIME
+
+    new_config['General']['cvapi_rate'] = CVAPI_RATE
     new_config['General']['http_port'] = HTTP_PORT
     new_config['General']['http_host'] = HTTP_HOST
     new_config['General']['http_username'] = HTTP_USERNAME
@@ -1185,6 +1380,7 @@ def config_write():
     new_config['General']['enable_https'] = int(ENABLE_HTTPS)
     new_config['General']['https_cert'] = HTTPS_CERT
     new_config['General']['https_key'] = HTTPS_KEY
+    new_config['General']['https_chain'] = HTTPS_CHAIN
     new_config['General']['https_force_on'] = int(HTTPS_FORCE_ON)
     new_config['General']['host_return'] = HOST_RETURN
     new_config['General']['api_enabled'] = int(API_ENABLED)
@@ -1193,7 +1389,6 @@ def config_write():
     new_config['General']['auto_update'] = int(AUTO_UPDATE)
     new_config['General']['log_dir'] = LOG_DIR
     new_config['General']['max_logsize'] = MAX_LOGSIZE
-    new_config['General']['logverbose'] = int(LOGVERBOSE)
     new_config['General']['git_path'] = GIT_PATH
     new_config['General']['cache_dir'] = CACHE_DIR
     new_config['General']['annuals_on'] = int(ANNUALS_ON)
@@ -1208,6 +1403,7 @@ def config_write():
     new_config['General']['multiple_dest_dirs'] = MULTIPLE_DEST_DIRS
     new_config['General']['create_folders'] = int(CREATE_FOLDERS)
     new_config['General']['delete_remove_dir'] = int(DELETE_REMOVE_DIR)
+    new_config['General']['enforce_perms'] = int(ENFORCE_PERMS)
     new_config['General']['chmod_dir'] = CHMOD_DIR
     new_config['General']['chmod_file'] = CHMOD_FILE
     new_config['General']['chowner'] = CHOWNER
@@ -1216,18 +1412,27 @@ def config_write():
     new_config['General']['alt_pull'] = int(ALT_PULL)
     new_config['General']['search_interval'] = SEARCH_INTERVAL
     new_config['General']['nzb_startup_search'] = int(NZB_STARTUP_SEARCH)
-    new_config['General']['libraryscan'] = int(LIBRARYSCAN)
-    new_config['General']['libraryscan_interval'] = LIBRARYSCAN_INTERVAL
     new_config['General']['add_comics'] = int(ADD_COMICS)
     new_config['General']['comic_dir'] = COMIC_DIR
+    if BLACKLISTED_PUBLISHERS is None:
+        flattened_blacklisted_pub = None
+    else:
+        flattened_blacklisted_pub = []
+        for item in BLACKLISTED_PUBLISHERS:
+            flattened_blacklisted_pub.append(item)
+    new_config['General']['blacklisted_publishers'] = flattened_blacklisted_pub
     new_config['General']['imp_move'] = int(IMP_MOVE)
     new_config['General']['imp_rename'] = int(IMP_RENAME)
     new_config['General']['imp_metadata'] = int(IMP_METADATA)
     new_config['General']['enable_check_folder'] = int(ENABLE_CHECK_FOLDER)
     new_config['General']['download_scan_interval'] = DOWNLOAD_SCAN_INTERVAL
+    new_config['General']['folder_scan_log_verbose'] = FOLDER_SCAN_LOG_VERBOSE
     new_config['General']['check_folder'] = CHECK_FOLDER
     new_config['General']['interface'] = INTERFACE
     new_config['General']['dupeconstraint'] = DUPECONSTRAINT
+    new_config['General']['ddump'] = int(DDUMP)
+    new_config['General']['duplicate_dump'] = DUPLICATE_DUMP
+    new_config['General']['pull_refresh'] = PULL_REFRESH
     new_config['General']['autowant_all'] = int(AUTOWANT_ALL)
     new_config['General']['autowant_upcoming'] = int(AUTOWANT_UPCOMING)
     new_config['General']['preferred_quality'] = int(PREFERRED_QUALITY)
@@ -1247,11 +1452,13 @@ def config_write():
     new_config['General']['ignore_havetotal'] = int(IGNORE_HAVETOTAL)
     new_config['General']['snatched_havetotal'] = int(SNATCHED_HAVETOTAL)
     new_config['General']['syno_fix'] = int(SYNO_FIX)
+    new_config['General']['allow_packs'] = int(ALLOW_PACKS)
     new_config['General']['search_delay'] = SEARCH_DELAY
     new_config['General']['grabbag_dir'] = GRABBAG_DIR
     new_config['General']['highcount'] = HIGHCOUNT
     new_config['General']['read2filename'] = int(READ2FILENAME)
     new_config['General']['send2read'] = int(SEND2READ)
+    new_config['General']['maintainseriesfolder'] = int(MAINTAINSERIESFOLDER)
     new_config['General']['tab_enable'] = int(TAB_ENABLE)
     new_config['General']['tab_host'] = TAB_HOST
     new_config['General']['tab_user'] = TAB_USER
@@ -1259,6 +1466,8 @@ def config_write():
     new_config['General']['tab_directory'] = TAB_DIRECTORY
     new_config['General']['storyarcdir'] = int(STORYARCDIR)
     new_config['General']['copy2arcdir'] = int(COPY2ARCDIR)
+    new_config['General']['arc_folderformat'] = ARC_FOLDERFORMAT
+    new_config['General']['arc_fileops'] = ARC_FILEOPS
     new_config['General']['use_minsize'] = int(USE_MINSIZE)
     new_config['General']['minsize'] = MINSIZE
     new_config['General']['use_maxsize'] = int(USE_MAXSIZE)
@@ -1272,16 +1481,20 @@ def config_write():
     new_config['General']['pre_scripts'] = PRE_SCRIPTS
     new_config['General']['post_processing'] = int(POST_PROCESSING)
     new_config['General']['post_processing_script'] = POST_PROCESSING_SCRIPT
+    new_config['General']['file_opts'] = FILE_OPTS
     new_config['General']['weekfolder'] = int(WEEKFOLDER)
+    new_config['General']['weekfolder_loc'] = WEEKFOLDER_LOC
+    new_config['General']['weekfolder_format'] = int(WEEKFOLDER_FORMAT)
     new_config['General']['locmove'] = int(LOCMOVE)
     new_config['General']['newcom_dir'] = NEWCOM_DIR
     new_config['General']['fftonewcom_dir'] = int(FFTONEWCOM_DIR)
     new_config['General']['enable_meta'] = int(ENABLE_META)
-    new_config['General']['cmtagger_path'] = CMTAGGER_PATH
+    new_config['General']['cbr2cbz_only'] = int(CBR2CBZ_ONLY)
     new_config['General']['ct_tag_cr'] = int(CT_TAG_CR)
     new_config['General']['ct_tag_cbl'] = int(CT_TAG_CBL)
     new_config['General']['ct_cbz_overwrite'] = int(CT_CBZ_OVERWRITE)
     new_config['General']['unrar_cmd'] = UNRAR_CMD
+    new_config['General']['cmtag_start_year_as_volume'] = int(CMTAG_START_YEAR_AS_VOLUME)
     new_config['General']['update_ended'] = int(UPDATE_ENDED)
     new_config['General']['indie_pub'] = INDIE_PUB
     new_config['General']['biggie_pub'] = BIGGIE_PUB
@@ -1305,6 +1518,7 @@ def config_write():
 
     new_config['General']['provider_order'] = flattened_providers
     new_config['General']['nzb_downloader'] = int(NZB_DOWNLOADER)
+    new_config['General']['torrent_downloader'] = int(TORRENT_DOWNLOADER)
 
     new_config['Torrents'] = {}
     new_config['Torrents']['enable_torrents'] = int(ENABLE_TORRENTS)
@@ -1319,9 +1533,11 @@ def config_write():
     new_config['Torrents']['seedbox_watchdir'] = SEEDBOX_WATCHDIR
 
     new_config['Torrents']['enable_torrent_search'] = int(ENABLE_TORRENT_SEARCH)
-    new_config['Torrents']['enable_kat'] = int(ENABLE_KAT)
-    new_config['Torrents']['kat_proxy'] = KAT_PROXY
+    new_config['Torrents']['enable_tpse'] = int(ENABLE_TPSE)
+    new_config['Torrents']['tpse_proxy'] = TPSE_PROXY
+    new_config['Torrents']['tpse_verify'] = TPSE_VERIFY
     new_config['Torrents']['enable_32p'] = int(ENABLE_32P)
+    new_config['Torrents']['search_32p'] = int(SEARCH_32P)
     new_config['Torrents']['mode_32p'] = int(MODE_32P)
     new_config['Torrents']['passkey_32p'] = PASSKEY_32P
     new_config['Torrents']['rssfeed_32p'] = RSSFEED_32P
@@ -1329,6 +1545,18 @@ def config_write():
     new_config['Torrents']['password_32p'] = PASSWORD_32P
     new_config['Torrents']['verify_32p'] = int(VERIFY_32P)
     new_config['Torrents']['snatchedtorrent_notify'] = int(SNATCHEDTORRENT_NOTIFY)
+    new_config['Torrents']['rtorrent_host'] = RTORRENT_HOST
+    new_config['Torrents']['rtorrent_authentication'] = RTORRENT_AUTHENTICATION
+    new_config['Torrents']['rtorrent_rpc_url'] = RTORRENT_RPC_URL
+    new_config['Torrents']['rtorrent_ssl'] = int(RTORRENT_SSL)
+    new_config['Torrents']['rtorrent_verify'] = int(RTORRENT_VERIFY)
+    new_config['Torrents']['rtorrent_ca_bundle'] = RTORRENT_CA_BUNDLE
+    new_config['Torrents']['rtorrent_username'] = RTORRENT_USERNAME
+    new_config['Torrents']['rtorrent_password'] = RTORRENT_PASSWORD
+    new_config['Torrents']['rtorrent_startonload'] = int(RTORRENT_STARTONLOAD)
+    new_config['Torrents']['rtorrent_label'] = RTORRENT_LABEL
+    new_config['Torrents']['rtorrent_directory'] = RTORRENT_DIRECTORY
+
     new_config['SABnzbd'] = {}
     #new_config['SABnzbd']['use_sabnzbd'] = int(USE_SABNZBD)
     new_config['SABnzbd']['sab_host'] = SAB_HOST
@@ -1354,10 +1582,12 @@ def config_write():
     new_config['NZBsu']['nzbsu'] = int(NZBSU)
     new_config['NZBsu']['nzbsu_uid'] = NZBSU_UID
     new_config['NZBsu']['nzbsu_apikey'] = NZBSU_APIKEY
+    new_config['NZBsu']['nzbsu_verify'] = NZBSU_VERIFY
 
     new_config['DOGnzb'] = {}
     new_config['DOGnzb']['dognzb'] = int(DOGNZB)
     new_config['DOGnzb']['dognzb_apikey'] = DOGNZB_APIKEY
+    new_config['DOGnzb']['dognzb_verify'] = DOGNZB_VERIFY
 
     new_config['Experimental'] = {}
     new_config['Experimental']['experimental'] = int(EXPERIMENTAL)
@@ -1369,10 +1599,29 @@ def config_write():
     new_config['Torznab']['torznab_host'] = TORZNAB_HOST
     new_config['Torznab']['torznab_apikey'] = TORZNAB_APIKEY
     new_config['Torznab']['torznab_category'] = TORZNAB_CATEGORY
+    new_config['Torznab']['torznab_verify'] = TORZNAB_VERIFY
 
     new_config['Newznab'] = {}
     new_config['Newznab']['newznab'] = int(NEWZNAB)
 
+    new_config['uTorrent'] = {}
+    new_config['uTorrent']['utorrent_host'] = UTORRENT_HOST
+    new_config['uTorrent']['utorrent_username'] = UTORRENT_USERNAME
+    new_config['uTorrent']['utorrent_password'] = UTORRENT_PASSWORD
+    new_config['uTorrent']['utorrent_label'] = UTORRENT_LABEL
+
+    new_config['Transmission'] = {}
+    new_config['Transmission']['transmission_host'] = TRANSMISSION_HOST
+    new_config['Transmission']['transmission_username'] = TRANSMISSION_USERNAME
+    new_config['Transmission']['transmission_password'] = TRANSMISSION_PASSWORD
+    new_config['Transmission']['transmission_directory'] = TRANSMISSION_DIRECTORY
+
+    new_config['Deluge'] = {}
+    new_config['Deluge']['deluge_host'] = DELUGE_HOST
+    new_config['Deluge']['deluge_username'] = DELUGE_USERNAME
+    new_config['Deluge']['deluge_password'] = DELUGE_PASSWORD
+    new_config['Deluge']['deluge_label'] = DELUGE_LABEL
+    
     # Need to unpack the extra newznabs for saving in config.ini
     flattened_newznabs = []
     for newznab in EXTRA_NEWZNABS:
@@ -1411,6 +1660,12 @@ def config_write():
     new_config['PUSHBULLET']['pushbullet_deviceid'] = PUSHBULLET_DEVICEID
     new_config['PUSHBULLET']['pushbullet_onsnatch'] = int(PUSHBULLET_ONSNATCH)
 
+    new_config['TELEGRAM'] = {}
+    new_config['TELEGRAM']['telegram_enabled'] = int(TELEGRAM_ENABLED)
+    new_config['TELEGRAM']['telegram_token'] = TELEGRAM_TOKEN
+    new_config['TELEGRAM']['telegram_userid'] = TELEGRAM_USERID
+    new_config['TELEGRAM']['telegram_onsnatch'] = int(TELEGRAM_ONSNATCH)
+
     new_config.write()
 
 def start():
@@ -1439,10 +1694,6 @@ def start():
 
             helpers.latestdate_fix()
 
-            #start the ComicVine API Counter here.
-            logger.info('Initiating the ComicVine API Checker to report API hits every 5 minutes.')
-            #SCHED.add_interval_job(helpers.cvapi_check, minutes=5)
-
             #initiate startup rss feeds for torrents/nzbs here...
             if ENABLE_RSS:
                 #SCHED.add_interval_job(rsscheck.tehMain, minutes=int(RSS_CHECKINTERVAL))
@@ -1456,7 +1707,8 @@ def start():
             #threading.Thread(target=weeklypull.pullit).start()
             #now the scheduler (check every 24 hours)
             #SCHED.add_interval_job(weeklypull.pullit, hours=24)
-            WeeklyScheduler.thread.start()
+            if not NOWEEKLY:
+                WeeklyScheduler.thread.start()
 
             #let's do a run at the Wanted issues here (on startup) if enabled.
             #if NZB_STARTUP_SEARCH:
@@ -1489,21 +1741,22 @@ def dbcheck():
     c_error = 'sqlite3.OperationalError'
     c=conn.cursor()
 
-    c.execute('CREATE TABLE IF NOT EXISTS comics (ComicID TEXT UNIQUE, ComicName TEXT, ComicSortName TEXT, ComicYear TEXT, DateAdded TEXT, Status TEXT, IncludeExtras INTEGER, Have INTEGER, Total INTEGER, ComicImage TEXT, ComicPublisher TEXT, ComicLocation TEXT, ComicPublished TEXT, NewPublish TEXT, LatestIssue TEXT, LatestDate TEXT, Description TEXT, QUALalt_vers TEXT, QUALtype TEXT, QUALscanner TEXT, QUALquality TEXT, LastUpdated TEXT, AlternateSearch TEXT, UseFuzzy TEXT, ComicVersion TEXT, SortOrder INTEGER, DetailURL TEXT, ForceContinuing INTEGER, ComicName_Filesafe TEXT, AlternateFileName TEXT, ComicImageURL TEXT, ComicImageALTURL TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS issues (IssueID TEXT, ComicName TEXT, IssueName TEXT, Issue_Number TEXT, DateAdded TEXT, Status TEXT, Type TEXT, ComicID TEXT, ArtworkURL Text, ReleaseDate TEXT, Location TEXT, IssueDate TEXT, Int_IssueNumber INT, ComicSize TEXT, AltIssueNumber TEXT, IssueDate_Edit TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS snatched (IssueID TEXT, ComicName TEXT, Issue_Number TEXT, Size INTEGER, DateAdded TEXT, Status TEXT, FolderName TEXT, ComicID TEXT, Provider TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS comics (ComicID TEXT UNIQUE, ComicName TEXT, ComicSortName TEXT, ComicYear TEXT, DateAdded TEXT, Status TEXT, IncludeExtras INTEGER, Have INTEGER, Total INTEGER, ComicImage TEXT, ComicPublisher TEXT, ComicLocation TEXT, ComicPublished TEXT, NewPublish TEXT, LatestIssue TEXT, LatestDate TEXT, Description TEXT, QUALalt_vers TEXT, QUALtype TEXT, QUALscanner TEXT, QUALquality TEXT, LastUpdated TEXT, AlternateSearch TEXT, UseFuzzy TEXT, ComicVersion TEXT, SortOrder INTEGER, DetailURL TEXT, ForceContinuing INTEGER, ComicName_Filesafe TEXT, AlternateFileName TEXT, ComicImageURL TEXT, ComicImageALTURL TEXT, DynamicComicName TEXT, AllowPacks TEXT, Type TEXT, Corrected_SeriesYear TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS issues (IssueID TEXT, ComicName TEXT, IssueName TEXT, Issue_Number TEXT, DateAdded TEXT, Status TEXT, Type TEXT, ComicID TEXT, ArtworkURL Text, ReleaseDate TEXT, Location TEXT, IssueDate TEXT, Int_IssueNumber INT, ComicSize TEXT, AltIssueNumber TEXT, IssueDate_Edit TEXT, ImageURL TEXT, ImageURL_ALT TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS snatched (IssueID TEXT, ComicName TEXT, Issue_Number TEXT, Size INTEGER, DateAdded TEXT, Status TEXT, FolderName TEXT, ComicID TEXT, Provider TEXT, Hash TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS upcoming (ComicName TEXT, IssueNumber TEXT, ComicID TEXT, IssueID TEXT, IssueDate TEXT, Status TEXT, DisplayComicName TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS nzblog (IssueID TEXT, NZBName TEXT, SARC TEXT, PROVIDER TEXT, ID TEXT, AltNZBName TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS weekly (SHIPDATE TEXT, PUBLISHER TEXT, ISSUE TEXT, COMIC VARCHAR(150), EXTRA TEXT, STATUS TEXT, ComicID TEXT, IssueID TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS weekly (SHIPDATE TEXT, PUBLISHER TEXT, ISSUE TEXT, COMIC VARCHAR(150), EXTRA TEXT, STATUS TEXT, ComicID TEXT, IssueID TEXT, CV_Last_Update TEXT, DynamicName TEXT, weeknumber TEXT, year TEXT, rowid INTEGER PRIMARY KEY)')
 #    c.execute('CREATE TABLE IF NOT EXISTS sablog (nzo_id TEXT, ComicName TEXT, ComicYEAR TEXT, ComicIssue TEXT, name TEXT, nzo_complete TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS importresults (impID TEXT, ComicName TEXT, ComicYear TEXT, Status TEXT, ImportDate TEXT, ComicFilename TEXT, ComicLocation TEXT, WatchMatch TEXT, DisplayName TEXT, SRID TEXT, ComicID TEXT, IssueID TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS importresults (impID TEXT, ComicName TEXT, ComicYear TEXT, Status TEXT, ImportDate TEXT, ComicFilename TEXT, ComicLocation TEXT, WatchMatch TEXT, DisplayName TEXT, SRID TEXT, ComicID TEXT, IssueID TEXT, Volume TEXT, IssueNumber TEXT, DynamicName TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS readlist (IssueID TEXT, ComicName TEXT, Issue_Number TEXT, Status TEXT, DateAdded TEXT, Location TEXT, inCacheDir TEXT, SeriesYear TEXT, ComicID TEXT, StatusChange TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS readinglist(StoryArcID TEXT, ComicName TEXT, IssueNumber TEXT, SeriesYear TEXT, IssueYEAR TEXT, StoryArc TEXT, TotalIssues TEXT, Status TEXT, inCacheDir TEXT, Location TEXT, IssueArcID TEXT, ReadingOrder INT, IssueID TEXT, ComicID TEXT, StoreDate TEXT, IssueDate TEXT, Publisher TEXT, IssuePublisher TEXT, IssueName TEXT, CV_ArcID TEXT, Int_IssueNumber INT)')
+    c.execute('CREATE TABLE IF NOT EXISTS readinglist(StoryArcID TEXT, ComicName TEXT, IssueNumber TEXT, SeriesYear TEXT, IssueYEAR TEXT, StoryArc TEXT, TotalIssues TEXT, Status TEXT, inCacheDir TEXT, Location TEXT, IssueArcID TEXT, ReadingOrder INT, IssueID TEXT, ComicID TEXT, StoreDate TEXT, IssueDate TEXT, Publisher TEXT, IssuePublisher TEXT, IssueName TEXT, CV_ArcID TEXT, Int_IssueNumber INT, DynamicComicName TEXT, Volume TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS annuals (IssueID TEXT, Issue_Number TEXT, IssueName TEXT, IssueDate TEXT, Status TEXT, ComicID TEXT, GCDComicID TEXT, Location TEXT, ComicSize TEXT, Int_IssueNumber INT, ComicName TEXT, ReleaseDate TEXT, ReleaseComicID TEXT, ReleaseComicName TEXT, IssueDate_Edit TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS rssdb (Title TEXT UNIQUE, Link TEXT, Pubdate TEXT, Site TEXT, Size TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS futureupcoming (ComicName TEXT, IssueNumber TEXT, ComicID TEXT, IssueID TEXT, IssueDate TEXT, Publisher TEXT, Status TEXT, DisplayComicName TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS failed (ID TEXT, Status TEXT, ComicID TEXT, IssueID TEXT, Provider TEXT, ComicName TEXT, Issue_Number TEXT, NZBName TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS futureupcoming (ComicName TEXT, IssueNumber TEXT, ComicID TEXT, IssueID TEXT, IssueDate TEXT, Publisher TEXT, Status TEXT, DisplayComicName TEXT, weeknumber TEXT, year TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS failed (ID TEXT, Status TEXT, ComicID TEXT, IssueID TEXT, Provider TEXT, ComicName TEXT, Issue_Number TEXT, NZBName TEXT, DateFailed TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS searchresults (SRID TEXT, results Numeric, Series TEXT, publisher TEXT, haveit TEXT, name TEXT, deck TEXT, url TEXT, description TEXT, comicid TEXT, comicimage TEXT, issues TEXT, comicyear TEXT, ogcname TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS ref32p (ComicID TEXT UNIQUE, ID TEXT, Series TEXT)')
     conn.commit
     c.close
     #new
@@ -1594,6 +1847,31 @@ def dbcheck():
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE comics ADD COLUMN NewPublish TEXT')
 
+    try:
+        c.execute('SELECT AllowPacks from comics')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN AllowPacks TEXT')
+
+    try:
+        c.execute('SELECT Type from comics')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN Type TEXT')
+
+    try:
+        c.execute('SELECT Corrected_SeriesYear from comics')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN Corrected_SeriesYear TEXT')
+
+    try:
+        c.execute('SELECT DynamicComicName from comics')
+        if DYNAMIC_UPDATE < 3:
+            dynamic_upgrade = True
+        else:
+            dynamic_upgrade = False
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE comics ADD COLUMN DynamicComicName TEXT')
+        dynamic_upgrade = True
+
     # -- Issues Table --
 
     try:
@@ -1615,6 +1893,16 @@ def dbcheck():
         c.execute('SELECT IssueDate_Edit from issues')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE issues ADD COLUMN IssueDate_Edit TEXT')
+
+    try:
+        c.execute('SELECT ImageURL from issues')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE issues ADD COLUMN ImageURL TEXT')
+
+    try:
+        c.execute('SELECT ImageURL_ALT from issues')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE issues ADD COLUMN ImageURL_ALT TEXT')
 
 
     ## -- ImportResults Table --
@@ -1669,6 +1957,21 @@ def dbcheck():
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE importresults ADD COLUMN IssueID TEXT')
 
+    try:
+        c.execute('SELECT Volume from importresults')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE importresults ADD COLUMN Volume TEXT')
+
+    try:
+        c.execute('SELECT IssueNumber from importresults')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE importresults ADD COLUMN IssueNumber TEXT')
+
+    try:
+        c.execute('SELECT DynamicName from importresults')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE importresults ADD COLUMN DynamicName TEXT')
+
     ## -- Readlist Table --
 
     try:
@@ -1712,6 +2015,31 @@ def dbcheck():
         c.execute('SELECT IssueID from weekly')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE weekly ADD COLUMN IssueID TEXT')
+
+    try:
+        c.execute('SELECT DynamicName from weekly')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE weekly ADD COLUMN DynamicName TEXT')
+
+    try:
+        c.execute('SELECT CV_Last_Update from weekly')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE weekly ADD COLUMN CV_Last_Update TEXT')
+
+    try:
+        c.execute('SELECT weeknumber from weekly')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE weekly ADD COLUMN weeknumber TEXT')
+
+    try:
+        c.execute('SELECT year from weekly')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE weekly ADD COLUMN year TEXT')
+
+    try:
+        c.execute('SELECT rowid from weekly')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE weekly ADD COLUMN rowid INTEGER PRIMARY KEY')
 
     ## -- Nzblog Table --
 
@@ -1791,6 +2119,10 @@ def dbcheck():
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE snatched ADD COLUMN Provider TEXT')
 
+    try:
+        c.execute('SELECT Hash from snatched')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE snatched ADD COLUMN Hash TEXT')
 
     ## -- Upcoming Table --
 
@@ -1842,6 +2174,21 @@ def dbcheck():
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE readinglist ADD COLUMN Int_IssueNumber INT')
 
+    try:
+        c.execute('SELECT DynamicComicName from readinglist')
+        if DYNAMIC_UPDATE < 4:
+            dynamic_upgrade = True
+        else:
+            dynamic_upgrade = False
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE readinglist ADD COLUMN DynamicComicName TEXT')
+        dynamic_upgrade = True
+
+    try:
+        c.execute('SELECT Volume from readinglist')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE readinglist ADD COLUMN Volume TEXT')
+
     ## -- searchresults Table --
     try:
         c.execute('SELECT SRID from searchresults')
@@ -1862,6 +2209,23 @@ def dbcheck():
         c.execute('SELECT ogcname from searchresults')
     except sqlite3.OperationalError:
         c.execute('ALTER TABLE searchresults ADD COLUMN ogcname TEXT')
+
+    ## -- futureupcoming Table --
+    try:
+        c.execute('SELECT weeknumber from futureupcoming')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE futureupcoming ADD COLUMN weeknumber TEXT')
+
+    try:
+        c.execute('SELECT year from futureupcoming')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE futureupcoming ADD COLUMN year TEXT')
+
+    ## -- Failed Table --
+    try:
+        c.execute('SELECT DateFailed from Failed')
+    except sqlite3.OperationalError:
+        c.execute('ALTER TABLE Failed ADD COLUMN DateFailed TEXT')
 
     #if it's prior to Wednesday, the issue counts will be inflated by one as the online db's everywhere
     #prepare for the next 'new' release of a series. It's caught in updater.py, so let's just store the
@@ -1889,16 +2253,22 @@ def dbcheck():
     #let's delete errant comics that are stranded (ie. Comicname = Comic ID: )
     c.execute("DELETE from comics WHERE ComicName='None' OR ComicName LIKE 'Comic ID%' OR ComicName is NULL")
     c.execute("DELETE from issues WHERE ComicName='None' OR ComicName LIKE 'Comic ID%' OR ComicName is NULL")
+    c.execute("DELETE from issues WHERE ComicID is NULL")
     c.execute("DELETE from annuals WHERE ComicName='None' OR ComicName is NULL or Issue_Number is NULL")
     c.execute("DELETE from upcoming WHERE ComicName='None' OR ComicName is NULL or IssueNumber is NULL")
+    c.execute("DELETE from importresults WHERE ComicName='None' OR ComicName is NULL")
+    c.execute("DELETE from Failed WHERE ComicName='None' OR ComicName is NULL")
     logger.info('Ensuring DB integrity - Removing all Erroneous Comics (ie. named None)')
 
     logger.info('Correcting Null entries that make the main page break on startup.')
     c.execute("UPDATE Comics SET LatestDate='Unknown' WHERE LatestDate='None' or LatestDate is NULL")
 
-
     conn.commit()
     c.close()
+
+    if dynamic_upgrade:
+        logger.info('Updating db to include some important changes.')
+        helpers.upgrade_dynamic()
 
 def csv_load():
     # for redudant module calls..include this.
@@ -1956,7 +2326,7 @@ def csv_load():
     c.close()
 
 def halt():
-    global __INITIALIZED__, dbUpdateScheduler, seachScheduler, RSSScheduler, WeeklyScheduler, \
+    global __INITIALIZED__, dbUpdateScheduler, searchScheduler, RSSScheduler, WeeklyScheduler, \
         VersionScheduler, FolderMonitorScheduler, started
 
     with INIT_LOCK:

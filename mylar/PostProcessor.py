@@ -40,8 +40,6 @@ class PostProcessor(object):
     EXISTS_SMALLER = 3
     DOESNT_EXIST = 4
 
-#    IGNORED_FILESTRINGS = [ "" ]
-
     NZB_NAME = 1
     FOLDER_NAME = 2
     FILE_NAME = 3
@@ -53,18 +51,6 @@ class PostProcessor(object):
         file_path: The path to the file to be processed
         nzb_name: The name of the NZB which resulted in this file being downloaded (optional)
         """
-        # absolute path to the folder that is being processed
-        #self.folder_path = ek.ek(os.path.dirname, ek.ek(os.path.abspath, file_path))
-
-        # full path to file
-        #self.file_path = file_path
-
-        # file name only
-        #self.file_name = ek.ek(os.path.basename, file_path)
-
-        # the name of the folder only
-        #self.folder_name = ek.ek(os.path.basename, self.folder_path)
-
         # name of the NZB that resulted in this folder
         self.nzb_name = nzb_name
         self.nzb_folder = nzb_folder
@@ -72,10 +58,15 @@ class PostProcessor(object):
             self.module = module + '[POST-PROCESSING]'
         else:
             self.module = '[POST-PROCESSING]'
-        if queue: self.queue = queue
-        #self.in_history = False
-        #self.release_group = None
-        #self.is_proper = False
+
+        if queue: 
+            self.queue = queue
+
+        if mylar.FILE_OPTS == 'copy':
+            self.fileop = shutil.copy
+        else:
+            self.fileop = shutil.move
+
         self.valreturn = []
         self.log = ''
 
@@ -172,6 +163,88 @@ class PostProcessor(object):
             self._log(u"Unable to run extra_script: " + str(script_cmd))
 
 
+    def duplicate_process(self, dupeinfo):
+            #path to move 'should' be the entire path to the given file
+            path_to_move = dupeinfo[0]['to_dupe']
+            file_to_move = os.path.split(path_to_move)[1]
+
+            if dupeinfo[0]['action'] == 'dupe_src' and mylar.FILE_OPTS == 'move':
+                logger.info('[DUPLICATE-CLEANUP] New File will be post-processed. Moving duplicate [' + path_to_move + '] to Duplicate Dump Folder for manual intervention.')
+            else:
+                if mylar.FILE_OPTS == 'move':
+                    logger.info('[DUPLICATE-CLEANUP][MOVE-MODE] New File will not be post-processed. Moving duplicate [' + path_to_move + '] to Duplicate Dump Folder for manual intervention.')
+                else:
+                    logger.info('[DUPLICATE-CLEANUP][COPY-MODE] NEW File will not be post-processed. Retaining file in original location [' + path_to_move + ']')
+                    return True
+
+            #this gets tricky depending on if it's the new filename or the existing filename, and whether or not 'copy' or 'move' has been selected.
+            if mylar.FILE_OPTS == 'move':
+                #check to make sure duplicate_dump directory exists:
+                checkdirectory = filechecker.validateAndCreateDirectory(mylar.DUPLICATE_DUMP, True, module='[DUPLICATE-CLEANUP]')
+                try:
+                    shutil.move(path_to_move, os.path.join(mylar.DUPLICATE_DUMP, file_to_move))
+                except (OSError, IOError):
+                    logger.warn('[DUPLICATE-CLEANUP] Failed to move ' + path_to_move + ' ... to ... ' + os.path.join(mylar.DUPLICATE_DUMP, file_to_move))
+                    return False
+
+                logger.warn('[DUPLICATE-CLEANUP] Successfully moved ' + path_to_move + ' ... to ... ' + os.path.join(mylar.DUPLICATE_DUMP, file_to_move))
+                return True
+
+    def tidyup(self, odir=None, del_nzbdir=False, sub_path=None):
+            # del_nzbdir will remove the original directory location. Must be set to False for manual pp or else will delete manual dir that's provided (if empty).
+            # move = cleanup/delete original location (self.nzb_folder) AND cache location (odir) if metatagging is enabled.
+            # copy = cleanup/delete cache location (odir) only if enabled.
+            #tidyup old path
+            try:
+                logger.fdebug('File Option: ' + mylar.FILE_OPTS + ' [META-ENABLED: ' + str(mylar.ENABLE_META) + ']')
+                logger.fdebug('odir: ' + odir + ' [self.nzb_folder: ' + self.nzb_folder + ']')
+                #if sub_path exists, then we need to use that in place of self.nzb_folder since the file was in a sub-directory within self.nzb_folder
+                if all([sub_path is not None, sub_path != self.nzb_folder]):
+                    logger.fdebug('Sub-directory detected during cleanup. Will attempt to remove if empty: ' + sub_path)
+                    orig_folder = sub_path
+                else:
+                    orig_folder = self.nzb_folder
+    
+                #make sure we don't delete the directory passed via manual-pp and ajust for trailling slashes or not
+                if orig_folder.endswith('/') or orig_folder.endswith('\\'):
+                    tmp_folder = orig_folder[:-1]
+                else:
+                    tmp_folder = orig_folder
+
+                if all([os.path.isdir(odir), self.nzb_folder != tmp_folder]) or del_nzbdir is True:
+                    # check to see if the directory is empty or not.
+                    if mylar.FILE_OPTS == 'move' and any([del_nzbdir is True, tmp_folder != self.nzb_folder]):
+                        if not os.listdir(tmp_folder):
+                            logger.fdebug(self.module + ' Tidying up. Deleting original folder location : ' + tmp_folder)
+                            shutil.rmtree(tmp_folder)
+                            self._log("Removed temporary directory : " + tmp_folder)
+                        else:
+                            self._log('Failed to remove temporary directory: ' + tmp_folder)
+                            raise OSError(self.module + ' ' + tmp_folder + ' not empty. Skipping removal of directory - this will either be caught in further post-processing or it will have to be manually deleted.')
+
+                    if mylar.ENABLE_META:
+                        #Regardless of the copy/move operation, we need to delete the files from within the cache directory, then remove the cache directory itself for the given issue.
+                        #sometimes during a meta, it retains the cbr as well after conversion depending on settings. Make sure to delete too thus the 'walk'.
+                        for filename in os.listdir(odir):
+                            filepath = os.path.join(odir, filename)
+                            try:
+                                os.remove(filepath)
+                            except OSError:
+                                pass
+
+                        if not os.listdir(odir):
+                            logger.fdebug(self.module + ' Tidying up. Deleting temporary cache directory : ' + odir)
+                            shutil.rmtree(odir)
+                            self._log("Removed temporary directory : " + odir)
+                        else:
+                            self._log('Failed to remove temporary directory: ' + odir)
+                            raise OSError(self.module + ' ' + odir + ' not empty. Skipping removal of temporary cache directory - this will either be caught in further post-processing or have to be manually deleted.')
+
+            except (OSError, IOError):
+                logger.fdebug(self.module + ' Failed to remove directory - Processing will continue, but manual removal is necessary')
+                self._log('Failed to remove temporary directory')
+
+
     def Process(self):
             module = self.module
             self._log("nzb name: " + self.nzb_name)
@@ -184,7 +257,7 @@ class PostProcessor(object):
                 logger.fdebug(module + ' Not using SABnzbd : Manual Run')
             else:
                 # if the SAB Directory option is enabled, let's use that folder name and append the jobname.
-                if mylar.SAB_DIRECTORY is not None and mylar.SAB_DIRECTORY is not 'None' and len(mylar.SAB_DIRECTORY) > 4:
+                if all([mylar.SAB_TO_MYLAR, mylar.SAB_DIRECTORY is not None, mylar.SAB_DIRECTORY != 'None', len(mylar.SAB_DIRECTORY) > 4]):
                     self.nzb_folder = os.path.join(mylar.SAB_DIRECTORY, self.nzb_name).encode(mylar.SYS_ENCODING)
                     logger.fdebug(module + ' SABnzbd Download folder option enabled. Directory set to : ' + self.nzb_folder)
 
@@ -212,11 +285,12 @@ class PostProcessor(object):
             if mylar.USE_NZBGET==1:
                 if self.nzb_name != 'Manual Run':
                     logger.fdebug(module + ' Using NZBGET')
-                logger.fdebug(module + ' NZB name as passed from NZBGet: ' + self.nzb_name)
+                    logger.fdebug(module + ' NZB name as passed from NZBGet: ' + self.nzb_name)
                 # if the NZBGet Directory option is enabled, let's use that folder name and append the jobname.
                 if self.nzb_name == 'Manual Run':
                     logger.fdebug(module + ' Manual Run Post-Processing enabled.')
                 elif mylar.NZBGET_DIRECTORY is not None and mylar.NZBGET_DIRECTORY is not 'None' and len(mylar.NZBGET_DIRECTORY) > 4:
+                    logger.fdebug(module + ' NZB name as passed from NZBGet: ' + self.nzb_name)
                     self.nzb_folder = os.path.join(mylar.NZBGET_DIRECTORY, self.nzb_name).encode(mylar.SYS_ENCODING)
                     logger.fdebug(module + ' NZBGET Download folder option enabled. Directory set to : ' + self.nzb_folder)
             myDB = db.DBConnection()
@@ -224,49 +298,76 @@ class PostProcessor(object):
             if self.nzb_name == 'Manual Run':
                 logger.fdebug (module + ' Manual Run initiated')
                 #Manual postprocessing on a folder.
-                #use the nzb_folder to determine every file
-                #walk the dir,
-                #once a series name and issue are matched,
-                #write the series/issue/filename to a tuple
-                #when all done, iterate over the tuple until completion...
-                comicseries = myDB.select("SELECT * FROM comics")
+                #first we get a parsed results list  of the files being processed, and then poll against the sql to get a short list of hits.
+                flc = filechecker.FileChecker(self.nzb_folder, justparse=True)
+                filelist = flc.listFiles()
+                if filelist['comiccount'] == 0: # is None:
+                    logger.warn('There were no files located - check the debugging logs if you think this is in error.')
+                    return                    
+                logger.info('I have located ' + str(filelist['comiccount']) + ' files that I should be able to post-process. Continuing...')
+
+                #preload the entire ALT list in here.
+                alt_list = []
+                alt_db = myDB.select("SELECT * FROM Comics WHERE AlternateSearch != 'None'")
+                if alt_db is not None:
+                    for aldb in alt_db:
+                        as_d = filechecker.FileChecker(AlternateSearch=helpers.conversion(aldb['AlternateSearch']))
+                        as_dinfo = as_d.altcheck()
+                        alt_list.append({'AS_Alt':   as_dinfo['AS_Alt'],
+                                         'AS_Tuple': as_dinfo['AS_Tuple'],
+                                         'AS_DyComicName': aldb['DynamicComicName']})
+
                 manual_list = []
-                if comicseries is None:
-                    logger.error(module + ' No Series in Watchlist - checking against Story Arcs (just in case). If I do not find anything, maybe you should be running Import?')
-                else:
-                    watchvals = []
-                    for wv in comicseries:
+                manual_arclist = []
 
-                        wv_comicname = wv['ComicName']
-                        wv_comicpublisher = wv['ComicPublisher']
-                        wv_alternatesearch = wv['AlternateSearch']
-                        wv_comicid = wv['ComicID']
+                for fl in filelist['comiclist']:
+                    as_d = filechecker.FileChecker()
+                    as_dinfo = as_d.dynamic_replace(helpers.conversion(fl['series_name']))
+                    mod_seriesname = as_dinfo['mod_seriesname']
+                    loopchk = []
+                    for x in alt_list:
+                        cname = x['AS_DyComicName']
+                        for ab in x['AS_Alt']:
+                            tmp_ab = re.sub(' ', '', ab)
+                            tmp_mod_seriesname = re.sub(' ', '', mod_seriesname)
+                            if re.sub('\|', '', tmp_mod_seriesname.lower()).strip() == re.sub('\|', '', tmp_ab.lower()).strip():
+                                if not any(re.sub('[\|\s]', '', cname.lower()) == x for x in loopchk):
+                                    loopchk.append(re.sub('[\|\s]', '', cname.lower()))
 
-                        wv_seriesyear = wv['ComicYear']
-                        wv_comicversion = wv['ComicVersion']
-                        wv_publisher = wv['ComicPublisher']
-                        wv_total = wv['Total']
+                    if all([mylar.ANNUALS_ON, 'annual' in mod_seriesname.lower()]):
+                        mod_seriesname = re.sub('annual', '', mod_seriesname, flags=re.I).strip()
 
-                        logger.fdebug('Checking ' + wv['ComicName'] + ' [' + str(wv['ComicYear']) + '] -- ' + str(wv['ComicID']))
+                    #make sure we add back in the original parsed filename here.
+                    if not any(re.sub('[\|\s]', '', mod_seriesname).lower() == x for x in loopchk):
+                        loopchk.append(re.sub('[\|\s]', '', mod_seriesname.lower()))
+                    tmpsql = "SELECT * FROM comics WHERE DynamicComicName IN ({seq}) COLLATE NOCASE".format(seq=','.join('?' * len(loopchk)))
+                    comicseries = myDB.select(tmpsql, tuple(loopchk))
 
-                        #force it to use the Publication Date of the latest issue instead of the Latest Date (which could be anything)
-                        latestdate = myDB.select('SELECT IssueDate from issues WHERE ComicID=? order by ReleaseDate DESC', [wv['ComicID']])
-                        if latestdate:
-                            tmplatestdate = latestdate[0][0]
-                            if tmplatestdate[:4] != wv['LatestDate'][:4]:
-                                if tmplatestdate[:4] > wv['LatestDate'][:4]:
-                                    latestdate = tmplatestdate
-                                else:
-                                    latestdate = wv['LatestDate']
-                            else:
-                                latestdate = tmplatestdate
-                        else:
-                            latestdate = wv['LatestDate']
+                    if comicseries is None:
+                        logger.error(module + ' No Series in Watchlist - checking against Story Arcs (just in case). If I do not find anything, maybe you should be running Import?')
+                        break
+                    else:
+                        watchvals = []
+                        for wv in comicseries:
+                            #do some extra checks in here to ignore these types:
+                            #check for Paused status /
+                            #check for Ended status and 100% completion of issues.
+                            if wv['Status'] == 'Paused' or (wv['Have'] == wv['Total'] and not any(['Present' in wv['ComicPublished'], helpers.now()[:4] in wv['ComicPublished']])):
+                                logger.warn(wv['ComicName'] + ' [' + wv['ComicYear'] + '] is either Paused or in an Ended status with 100% completion. Ignoring for match.')
+                                continue
+                            wv_comicname = wv['ComicName']
+                            wv_comicpublisher = wv['ComicPublisher']
+                            wv_alternatesearch = wv['AlternateSearch']
+                            wv_comicid = wv['ComicID']
 
-                        if latestdate == '0000-00-00' or latestdate == 'None' or latestdate is None:
-                            logger.fdebug('Forcing a refresh of series: ' + wv_comicname + ' as it appears to have incomplete issue dates.')
-                            updater.dbUpdate([wv_comicid])
-                            logger.fdebug('Refresh complete for ' + wv_comicname + '. Rechecking issue dates for completion.')
+                            wv_seriesyear = wv['ComicYear']
+                            wv_comicversion = wv['ComicVersion']
+                            wv_publisher = wv['ComicPublisher']
+                            wv_total = wv['Total']
+                            if mylar.FOLDER_SCAN_LOG_VERBOSE:
+                                logger.fdebug('Queuing to Check: ' + wv['ComicName'] + ' [' + str(wv['ComicYear']) + '] -- ' + str(wv['ComicID']))
+
+                            #force it to use the Publication Date of the latest issue instead of the Latest Date (which could be anything)
                             latestdate = myDB.select('SELECT IssueDate from issues WHERE ComicID=? order by ReleaseDate DESC', [wv['ComicID']])
                             if latestdate:
                                 tmplatestdate = latestdate[0][0]
@@ -280,218 +381,311 @@ class PostProcessor(object):
                             else:
                                 latestdate = wv['LatestDate']
 
-                            logger.fdebug('Latest Date (after forced refresh) set to :' + str(latestdate))
-
                             if latestdate == '0000-00-00' or latestdate == 'None' or latestdate is None:
-                                logger.fdebug('Unable to properly attain the Latest Date for series: ' + wv_comicname + '. Cannot check against this series for post-processing.')
-                                continue 
+                                logger.fdebug('Forcing a refresh of series: ' + wv_comicname + ' as it appears to have incomplete issue dates.')
+                                updater.dbUpdate([wv_comicid])
+                                logger.fdebug('Refresh complete for ' + wv_comicname + '. Rechecking issue dates for completion.')
+                                latestdate = myDB.select('SELECT IssueDate from issues WHERE ComicID=? order by ReleaseDate DESC', [wv['ComicID']])
+                                if latestdate:
+                                    tmplatestdate = latestdate[0][0]
+                                    if tmplatestdate[:4] != wv['LatestDate'][:4]:
+                                        if tmplatestdate[:4] > wv['LatestDate'][:4]:
+                                            latestdate = tmplatestdate
+                                        else:
+                                            latestdate = wv['LatestDate']
+                                    else:
+                                        latestdate = tmplatestdate
+                                else:
+                                    latestdate = wv['LatestDate']
 
-                        watchvals.append({"ComicName":       wv_comicname,
-                                          "ComicPublisher":  wv_comicpublisher,
-                                          "AlternateSearch": wv_alternatesearch,
-                                          "ComicID":         wv_comicid,
-                                          "WatchValues": {"SeriesYear":   wv_seriesyear,
-                                                           "LatestDate":   latestdate,
-                                                           "ComicVersion": wv_comicversion,
-                                                           "Publisher":    wv_publisher,
-                                                           "Total":        wv_total,
-                                                           "ComicID":      wv_comicid,
-                                                           "IsArc":        False}
-                                         })
+                                logger.fdebug('Latest Date (after forced refresh) set to :' + str(latestdate))
+
+                                if latestdate == '0000-00-00' or latestdate == 'None' or latestdate is None:
+                                    logger.fdebug('Unable to properly attain the Latest Date for series: ' + wv_comicname + '. Cannot check against this series for post-processing.')
+                                    continue 
+
+                            watchvals.append({"ComicName":       wv_comicname,
+                                              "ComicPublisher":  wv_comicpublisher,
+                                              "AlternateSearch": wv_alternatesearch,
+                                              "ComicID":         wv_comicid,
+                                              "WatchValues": {"SeriesYear":   wv_seriesyear,
+                                                              "LatestDate":   latestdate,
+                                                              "ComicVersion": wv_comicversion,
+                                                              "Publisher":    wv_publisher,
+                                                              "Total":        wv_total,
+                                                              "ComicID":      wv_comicid,
+                                                              "IsArc":        False}
+                                             })
 
                     ccnt=0
                     nm=0
                     for cs in watchvals:
-                        watchmatch = filechecker.listFiles(self.nzb_folder, cs['ComicName'], cs['ComicPublisher'], cs['AlternateSearch'], manual=cs['WatchValues'])
-                        if watchmatch['comiccount'] == 0: # is None:
+                        wm = filechecker.FileChecker(watchcomic=cs['ComicName'], Publisher=cs['ComicPublisher'], AlternateSearch=cs['AlternateSearch'], manual=cs['WatchValues'])
+                        watchmatch = wm.matchIT(fl)
+                        if watchmatch['process_status'] == 'fail':
                             nm+=1
                             continue
                         else:
-                            fn = 0
-                            fccnt = int(watchmatch['comiccount'])
-                            if len(watchmatch) == 1: continue
-                            while (fn < fccnt):
-                                try:
-                                    tmpfc = watchmatch['comiclist'][fn]
-                                except IndexError, KeyError:
-                                    break
-                                temploc= tmpfc['JusttheDigits'].replace('_', ' ')
-                                temploc = re.sub('[\#\']', '', temploc)
+                            temploc= watchmatch['justthedigits'].replace('_', ' ')
+                            temploc = re.sub('[\#\']', '', temploc)
 
-                                if 'annual' in temploc.lower():
-                                    biannchk = re.sub('-', '', temploc.lower()).strip()
-                                    if 'biannual' in biannchk:
-                                        logger.fdebug(module + ' Bi-Annual detected.')
-                                        fcdigit = helpers.issuedigits(re.sub('biannual', '', str(biannchk)).strip())
+                            if 'annual' in temploc.lower():
+                                biannchk = re.sub('-', '', temploc.lower()).strip()
+                                if 'biannual' in biannchk:
+                                    logger.fdebug(module + ' Bi-Annual detected.')
+                                    fcdigit = helpers.issuedigits(re.sub('biannual', '', str(biannchk)).strip())
+                                else:
+                                    fcdigit = helpers.issuedigits(re.sub('annual', '', str(temploc.lower())).strip())
+                                    logger.fdebug(module + ' Annual detected [' + str(fcdigit) +']. ComicID assigned as ' + str(cs['ComicID']))
+                                annchk = "yes"
+                                issuechk = myDB.selectone("SELECT * from annuals WHERE ComicID=? AND Int_IssueNumber=?", [cs['ComicID'], fcdigit]).fetchone()
+                            else:
+                                fcdigit = helpers.issuedigits(temploc)
+                                issuechk = myDB.selectone("SELECT * from issues WHERE ComicID=? AND Int_IssueNumber=?", [cs['ComicID'], fcdigit]).fetchone()
+
+                            if issuechk is None:
+                                logger.fdebug(module + ' No corresponding issue # found for ' + str(cs['ComicID']))
+                                continue
+                            else:
+                                datematch = "True"
+                                if issuechk['ReleaseDate'] is not None and issuechk['ReleaseDate'] != '0000-00-00':
+                                    monthval = issuechk['ReleaseDate']
+                                    watch_issueyear = issuechk['ReleaseDate'][:4]
+                                else:
+                                    monthval = issuechk['IssueDate']
+                                    watch_issueyear = issuechk['IssueDate'][:4]
+
+                                if len(watchmatch) >= 1 and watchmatch['issue_year'] is not None:
+                                    #if the # of matches is more than 1, we need to make sure we get the right series
+                                    #compare the ReleaseDate for the issue, to the found issue date in the filename.
+                                    #if ReleaseDate doesn't exist, use IssueDate
+                                    #if no issue date was found, then ignore.
+                                    logger.fdebug(module + '[ISSUE-VERIFY] Now checking against ' + cs['ComicName'] + '-' + cs['ComicID'])
+                                    issyr = None
+                                    #logger.fdebug(module + ' issuedate:' + str(issuechk['IssueDate']))
+                                    #logger.fdebug(module + ' issuechk: ' + str(issuechk['IssueDate'][5:7]))
+ 
+                                    #logger.info(module + ' ReleaseDate: ' + str(issuechk['ReleaseDate']))
+                                    #logger.info(module + ' IssueDate: ' + str(issuechk['IssueDate']))
+                                    if issuechk['ReleaseDate'] is not None and issuechk['ReleaseDate'] != '0000-00-00':
+                                        if int(issuechk['ReleaseDate'][:4]) < int(watchmatch['issue_year']):
+                                            logger.fdebug(module + '[ISSUE-VERIFY] ' + str(issuechk['ReleaseDate']) + ' is before the issue year of ' + str(watchmatch['issue_year']) + ' that was discovered in the filename')
+                                            datematch = "False"
                                     else:
-                                        fcdigit = helpers.issuedigits(re.sub('annual', '', str(temploc.lower())).strip())
-                                        logger.fdebug(module + ' Annual detected [' + str(fcdigit) +']. ComicID assigned as ' + str(cs['ComicID']))
-                                    annchk = "yes"
-                                    issuechk = myDB.selectone("SELECT * from annuals WHERE ComicID=? AND Int_IssueNumber=?", [cs['ComicID'], fcdigit]).fetchone()
-                                else:
-                                    fcdigit = helpers.issuedigits(temploc)
-                                    issuechk = myDB.selectone("SELECT * from issues WHERE ComicID=? AND Int_IssueNumber=?", [cs['ComicID'], fcdigit]).fetchone()
+                                        if int(issuechk['IssueDate'][:4]) < int(watchmatch['issue_year']):
+                                            logger.fdebug(module + '[ISSUE-VERIFY] ' + str(issuechk['IssueDate']) + ' is before the issue year ' + str(watchmatch['issue_year']) + ' that was discovered in the filename')
+                                            datematch = "False"
 
-                                if issuechk is None:
-                                    logger.fdebug(module + ' No corresponding issue # found for ' + str(cs['ComicID']))
-                                else:
-                                    datematch = "True"
-                                    if len(watchmatch) >= 1 and tmpfc['ComicYear'] is not None:
-                                        #if the # of matches is more than 1, we need to make sure we get the right series
-                                        #compare the ReleaseDate for the issue, to the found issue date in the filename.
-                                        #if ReleaseDate doesn't exist, use IssueDate
-                                        #if no issue date was found, then ignore.
-                                        issyr = None
-                                        #logger.fdebug('issuedate:' + str(issuechk['IssueDate']))
-                                        #logger.fdebug('issuechk: ' + str(issuechk['IssueDate'][5:7]))
+                                    if int(monthval[5:7]) == 11 or int(monthval[5:7]) == 12:
+                                        issyr = int(monthval[:4]) + 1
+                                        logger.fdebug(module + '[ISSUE-VERIFY] IssueYear (issyr) is ' + str(issyr))
+                                    elif int(monthval[5:7]) == 1 or int(monthval[5:7]) == 2 or int(monthval[5:7]) == 3:
+                                        issyr = int(monthval[:4]) - 1
 
-                                        #logger.info('ReleaseDate: ' + str(issuechk['ReleaseDate']))
-                                        #logger.info('IssueDate: ' + str(issuechk['IssueDate']))
-                                        if issuechk['ReleaseDate'] is not None and issuechk['ReleaseDate'] != '0000-00-00':
-                                            monthval = issuechk['ReleaseDate']
-                                            if int(issuechk['ReleaseDate'][:4]) < int(tmpfc['ComicYear']):
-                                                logger.fdebug(module + ' ' + str(issuechk['ReleaseDate']) + ' is before the issue year of ' + str(tmpfc['ComicYear']) + ' that was discovered in the filename')
+                                    if datematch == "False" and issyr is not None:
+                                        logger.fdebug(module + '[ISSUE-VERIFY] ' + str(issyr) + ' comparing to ' + str(watchmatch['issue_year']) + ' : rechecking by month-check versus year.')
+                                        datematch = "True"
+                                        if int(issyr) != int(watchmatch['issue_year']):
+                                            logger.fdebug(module + '[ISSUE-VERIFY][.:FAIL:.] Issue is before the modified issue year of ' + str(issyr))
+                                            datematch = "False"
+
+                                else:
+                                    logger.info(module + '[ISSUE-VERIFY] Found matching issue # ' + str(fcdigit) + ' for ComicID: ' + str(cs['ComicID']) + ' / IssueID: ' + str(issuechk['IssueID']))
+
+                                if datematch == "True":
+                                    # if we get to here, we need to do some more comparisons just to make sure we have the right volume
+                                    # first we chk volume label if it exists, then we drop down to issue year
+                                    # if the above both don't exist, and there's more than one series on the watchlist (or the series is > v1)
+                                    # then spit out the error message and don't post-process it.
+                                    watch_values = cs['WatchValues']
+                                    #logger.fdebug('WATCH_VALUES:' + str(watch_values))
+                                    if any([watch_values['ComicVersion'] is None, watch_values['ComicVersion'] == 'None']):
+                                        tmp_watchlist_vol = '1'
+                                    else:
+                                        tmp_watchlist_vol = re.sub("[^0-9]", "", watch_values['ComicVersion']).strip()
+                                    if all([watchmatch['series_volume'] != 'None', watchmatch['series_volume'] is not None]):
+                                        tmp_watchmatch_vol = re.sub("[^0-9]","", watchmatch['series_volume']).strip()
+                                        if len(tmp_watchmatch_vol) == 4:
+                                            if int(tmp_watchmatch_vol) == int(watch_values['SeriesYear']):
+                                                logger.fdebug(module + '[ISSUE-VERIFY][SeriesYear-Volume MATCH] Series Year of ' + str(watch_values['SeriesYear']) + ' matched to volume/year label of ' + str(tmp_watchmatch_vol))
+                                            else:
+                                                logger.fdebug(module + '[ISSUE-VERIFY][SeriesYear-Volume FAILURE] Series Year of ' + str(watch_values['SeriesYear']) + ' DID NOT match to volume/year label of ' + tmp_watchmatch_vol)
                                                 datematch = "False"
+                                        if len(watchvals) > 1 and int(tmp_watchmatch_vol) > 1:
+                                            if int(tmp_watchmatch_vol) == int(tmp_watchlist_vol):
+                                                logger.fdebug(module + '[ISSUE-VERIFY][SeriesYear-Volume MATCH] Volume label of series Year of ' + str(watch_values['ComicVersion']) + ' matched to volume label of ' + str(watchmatch['series_volume']))
+                                            else:
+                                                logger.fdebug(module + '[ISSUE-VERIFY][SeriesYear-Volume FAILURE] Volume label of Series Year of ' + str(watch_values['ComicVersion']) + ' DID NOT match to volume label of ' + str(watchmatch['series_volume']))
+                                                continue
+                                                #datematch = "False"
+                                    else:
+                                        if any([tmp_watchlist_vol is None, tmp_watchlist_vol == 'None', tmp_watchlist_vol == '']):
+                                            logger.fdebug(module + '[ISSUE-VERIFY][NO VOLUME PRESENT] No Volume label present for series. Dropping down to Issue Year matching.')
+                                            datematch = "False"
+                                        elif len(watchvals) == 1 and int(tmp_watchlist_vol) == 1:
+                                            logger.fdebug(module + '[ISSUE-VERIFY][Lone Volume MATCH] Volume label of ' + str(watch_values['ComicVersion']) + ' indicates only volume for this series on your watchlist.')
+                                        elif int(tmp_watchlist_vol) > 1:    
+                                            logger.fdebug(module + '[ISSUE-VERIFY][Lone Volume FAILURE] Volume label of ' + str(watch_values['ComicVersion']) + ' indicates that there is more than one volume for this series, but the one on your watchlist has no volume label set.')
+                                            datematch = "False"
 
+                                    if datematch == "False" and all([watchmatch['issue_year'] is not None, watchmatch['issue_year'] != 'None', watch_issueyear is not None]):
+                                        #now we see if the issue year matches exactly to what we have within Mylar.
+                                        if int(watch_issueyear) == int(watchmatch['issue_year']):
+                                            logger.fdebug(module + '[ISSUE-VERIFY][Issue Year MATCH] Issue Year of ' + str(watch_issueyear) + ' is a match to the year found in the filename of : ' + str(watchmatch['issue_year']))
+                                            datematch = 'True'      
                                         else:
-                                            monthval = issuechk['IssueDate']
-                                            if int(issuechk['IssueDate'][:4]) < int(tmpfc['ComicYear']):
-                                                logger.fdebug(module + ' ' + str(issuechk['IssueDate']) + ' is before the issue year ' + str(tmpfc['ComicYear']) + ' that was discovered in the filename')
-                                                datematch = "False"
+                                            logger.fdebug(module + '[ISSUE-VERIFY][Issue Year FAILURE] Issue Year of ' + str(watch_issueyear) + ' does NOT match the year found in the filename of : ' + str(watchmatch['issue_year']))
+                                            logger.fdebug(module + '[ISSUE-VERIFY] Checking against complete date to see if month published could allow for different publication year.')
+                                            if issyr is not None:
+                                                if int(issyr) != int(watchmatch['issue_year']):
+                                                    logger.fdebug(module + '[ISSUE-VERIFY][Issue Year FAILURE] Modified Issue year of ' + str(issyr) + ' is before the modified issue year of ' + str(issyr))
+                                                else:
+                                                    logger.fdebug(module + '[ISSUE-VERIFY][Issue Year MATCH] Modified Issue Year of ' + str(issyr) + ' is a match to the year found in the filename of : ' + str(watchmatch['issue_year']))
+                                                    datematch = 'True'
 
-                                        if int(monthval[5:7]) == 11 or int(monthval[5:7]) == 12:
-                                            issyr = int(monthval[:4]) + 1
-                                            logger.fdebug(module + ' IssueYear (issyr) is ' + str(issyr))
-                                        elif int(monthval[5:7]) == 1 or int(monthval[5:7]) == 2 or int(monthval[5:7]) == 3:
-                                            issyr = int(monthval[:4]) - 1
-
-
-
-                                        if datematch == "False" and issyr is not None:
-                                            logger.fdebug(module + ' ' + str(issyr) + ' comparing to ' + str(tmpfc['ComicYear']) + ' : rechecking by month-check versus year.')
-                                            datematch = "True"
-                                            if int(issyr) != int(tmpfc['ComicYear']):
-                                                logger.fdebug(module + '[.:FAIL:.] Issue is before the modified issue year of ' + str(issyr))
-                                                datematch = "False"
-
-                                    else:
-                                        logger.info(module + ' Found matching issue # ' + str(fcdigit) + ' for ComicID: ' + str(cs['ComicID']) + ' / IssueID: ' + str(issuechk['IssueID']))
-
-                                    if datematch == "True":
-                                        manual_list.append({"ComicLocation":   tmpfc['ComicLocation'],
+                                    if datematch == 'True':
+                                        if watchmatch['sub']:
+                                            clocation = os.path.join(watchmatch['comiclocation'], watchmatch['sub'], helpers.conversion(watchmatch['comicfilename']))
+                                        else:
+                                            clocation = os.path.join(watchmatch['comiclocation'],helpers.conversion(watchmatch['comicfilename']))
+                                        manual_list.append({"ComicLocation":   clocation,
                                                             "ComicID":         cs['ComicID'],
                                                             "IssueID":         issuechk['IssueID'],
                                                             "IssueNumber":     issuechk['Issue_Number'],
                                                             "ComicName":       cs['ComicName']})
                                     else:
-                                        logger.fdebug(module + ' Incorrect series - not populating..continuing post-processing')
-                                    #ccnt+=1
+                                        logger.fdebug(module + '[NON-MATCH: ' + cs['ComicName'] + '-' + cs['ComicID'] + '] Incorrect series - not populating..continuing post-processing')
+                                        continue
+                                else:
+                                    logger.fdebug(module + '[NON-MATCH: ' + cs['ComicName'] + '-' + cs['ComicID'] + '] Incorrect series - not populating..continuing post-processing')
+                                    continue
 
-                                fn+=1
-                    logger.fdebug(module + ' There are ' + str(len(manual_list)) + ' files found that match on your watchlist, ' + str(nm) + ' do not match anything and will be ignored.')
+                        logger.fdebug(module + '[SUCCESSFUL MATCH: ' + cs['ComicName'] + '-' + cs['ComicID'] + '] Match verified for ' + helpers.conversion(fl['comicfilename']))
+                        break
 
-                #we should setup for manual post-processing of story-arc issues here
-                arc_series = myDB.select("SELECT * FROM readinglist order by ComicName") # by StoryArcID")
-                manual_arclist = []
-                if arc_series is None:
-                    logger.error(module + ' No Story Arcs in Watchlist - aborting Manual Post Processing. Maybe you should be running Import?')
-                    return
-                else:
-                    arcvals = []
-                    for av in arc_series:
-                        arcvals.append({"ComicName":       av['ComicName'],
-                                        "ArcValues":       {"StoryArc":        av['StoryArc'],
-                                                            "StoryArcID":      av['StoryArcID'],
-                                                            "IssueArcID":      av['IssueArcID'],
-                                                            "ComicName":       av['ComicName'],
-                                                            "ComicPublisher":  av['IssuePublisher'],
-                                                            "IssueID":         av['IssueID'],
-                                                            "IssueNumber":     av['IssueNumber'],
-                                                            "IssueYear":       av['IssueYear'],   #for some reason this is empty 
-                                                            "ReadingOrder":    av['ReadingOrder'],
-                                                            "IssueDate":       av['IssueDate'],
-                                                            "Status":          av['Status'],
-                                                            "Location":        av['Location']},
-                                        "WatchValues":     {"SeriesYear":   av['SeriesYear'],
-                                                            "LatestDate":   av['IssueDate'],
-                                                            "ComicVersion": 'v' + str(av['SeriesYear']),
-                                                            "Publisher":    av['IssuePublisher'],
-                                                            "Total":        av['TotalIssues'],   # this will return the total issues in the arc (not needed for this)
-                                                            "ComicID":      av['ComicID'],
-                                                            "IsArc":        True}
-                                        })
 
-                    ccnt=0
-                    nm=0
-                    from collections import defaultdict
-                    res = defaultdict(list)
-                    for acv in arcvals:
-                        res[acv['ComicName']].append({"ArcValues":     acv['ArcValues'],
-                                                      "WatchValues":   acv['WatchValues']})
+                    #we should setup for manual post-processing of story-arc issues here
+                    #we can also search by ComicID to just grab those particular arcs as an alternative as well (not done)
+                    logger.fdebug(module + ' Now Checking if the issue also resides in one of the storyarc\'s that I am watching.')
+                    
+                    #as_d = filechecker.FileChecker()
+                    #as_dinfo = as_d.dynamic_replace(helpers.conversion(fl['series_name']))
+                    #mod_seriesname = as_dinfo['mod_seriesname']
+                    #arcloopchk = []
+                    #for x in alt_list:
+                    #    cname = x['AS_DyComicName']
+                    #    for ab in x['AS_Alt']:
+                    #        if re.sub('[\|\s]', '', mod_seriesname.lower()).strip() in re.sub('[\|\s]', '', ab.lower()).strip():
+                    #            if not any(re.sub('[\|\s]', '', cname.lower()) == x for x in arcloopchk):
+                    #                arcloopchk.append(re.sub('[\|\s]', '', cname.lower()))
+
+                    ##make sure we add back in the original parsed filename here.
+                    #if not any(re.sub('[\|\s]', '', mod_seriesname).lower() == x for x in arcloopchk):
+                    #    arcloopchk.append(re.sub('[\|\s]', '', mod_seriesname.lower()))
+
+                    tmpsql = "SELECT * FROM readinglist WHERE DynamicComicName IN ({seq}) COLLATE NOCASE".format(seq=','.join('?' * len(loopchk))) #len(arcloopchk)))
+                    arc_series = myDB.select(tmpsql, tuple(loopchk)) #arcloopchk))
+
+                    if arc_series is None:
+                        logger.error(module + ' No Story Arcs in Watchlist that contain that particular series - aborting Manual Post Processing. Maybe you should be running Import?')
+                        return
+                    else:
+                        arcvals = []
+                        for av in arc_series:
+                            arcvals.append({"ComicName":       av['ComicName'],
+                                            "ArcValues":       {"StoryArc":         av['StoryArc'],
+                                                                "StoryArcID":       av['StoryArcID'],
+                                                                "IssueArcID":       av['IssueArcID'],
+                                                                "ComicName":        av['ComicName'],
+                                                                "DynamicComicName": av['DynamicComicName'],
+                                                                "ComicPublisher":   av['IssuePublisher'],
+                                                                "Publisher":        av['Publisher'],
+                                                                "IssueID":          av['IssueID'],
+                                                                "IssueNumber":      av['IssueNumber'],
+                                                                "IssueYear":        av['IssueYear'],   #for some reason this is empty 
+                                                                "ReadingOrder":     av['ReadingOrder'],
+                                                                "IssueDate":        av['IssueDate'],
+                                                                "Status":           av['Status'],
+                                                                "Location":         av['Location']},
+                                            "WatchValues":     {"SeriesYear":       av['SeriesYear'],
+                                                                "LatestDate":       av['IssueDate'],
+                                                                "ComicVersion":     'v' + str(av['SeriesYear']),
+                                                                "Publisher":        av['IssuePublisher'],
+                                                                "Total":            av['TotalIssues'],   # this will return the total issues in the arc (not needed for this)
+                                                                "ComicID":          av['ComicID'],
+                                                                "IsArc":            True}
+                                            })
+
+                        ccnt=0
+                        nm=0
+                        from collections import defaultdict
+                        res = defaultdict(list)
+                        for acv in arcvals:
+                            res[acv['ComicName']].append({"ArcValues":     acv['ArcValues'],
+                                                          "WatchValues":   acv['WatchValues']})
 
                     for k,v in res.items():
                         i = 0
+                        #k is ComicName
+                        #v is ArcValues and WatchValues
                         while i < len(v):
-                            #k is ComicName
-                            #v is ArcValues and WatchValues
                             if k is None or k == 'None':
                                 pass
                             else:
-                                arcmatch = filechecker.listFiles(self.nzb_folder, k, v[i]['ArcValues']['ComicPublisher'], manual=v[i]['WatchValues'])
-                                if arcmatch['comiccount'] == 0:
-                                    pass
+                                arcm = filechecker.FileChecker(watchcomic=k, Publisher=v[i]['ArcValues']['ComicPublisher'], manual=v[i]['WatchValues'])
+                                arcmatch = arcm.matchIT(fl)
+                                logger.info('arcmatch: ' + str(arcmatch))
+                                if arcmatch['process_status'] == 'fail':
+                                    nm+=1
                                 else:
-                                    fn = 0
-                                    fccnt = int(arcmatch['comiccount'])
-                                    if len(arcmatch) == 1: break
-                                    while (fn < fccnt):
-                                        try:
-                                            tmpfc = arcmatch['comiclist'][fn]
-                                        except IndexError, KeyError:
-                                            break
-                                        temploc= tmpfc['JusttheDigits'].replace('_', ' ')
-                                        temploc = re.sub('[\#\']', '', temploc)
-
-                                        if 'annual' in temploc.lower():
-                                            biannchk = re.sub('-', '', temploc.lower()).strip()
-                                            if 'biannual' in biannchk:
-                                                logger.fdebug(module + ' Bi-Annual detected.')
-                                                fcdigit = helpers.issuedigits(re.sub('biannual', '', str(biannchk)).strip())
-                                            else:
-                                                logger.fdebug(module + ' Annual detected.')
-                                                fcdigit = helpers.issuedigits(re.sub('annual', '', str(temploc.lower())).strip())
-                                            annchk = "yes"
-                                            issuechk = myDB.selectone("SELECT * from readinglist WHERE ComicID=? AND Int_IssueNumber=?", [v[i]['WatchValues']['ComicID'], fcdigit]).fetchone()
+                                    temploc= arcmatch['justthedigits'].replace('_', ' ')
+                                    temploc = re.sub('[\#\']', '', temploc)
+                                    if helpers.issuedigits(temploc) != helpers.issuedigits(v[i]['ArcValues']['IssueNumber']):
+                                        logger.info('issues dont match. Skipping')
+                                        i+=1
+                                        continue
+                                    if 'annual' in temploc.lower():
+                                        biannchk = re.sub('-', '', temploc.lower()).strip()
+                                        if 'biannual' in biannchk:
+                                            logger.fdebug(module + ' Bi-Annual detected.')
+                                            fcdigit = helpers.issuedigits(re.sub('biannual', '', str(biannchk)).strip())
                                         else:
-                                            fcdigit = helpers.issuedigits(temploc)
-                                            issuechk = myDB.selectone("SELECT * from readinglist WHERE ComicID=? AND Int_IssueNumber=?", [v[i]['WatchValues']['ComicID'], fcdigit]).fetchone()
+                                            fcdigit = helpers.issuedigits(re.sub('annual', '', str(temploc.lower())).strip())
+                                            logger.fdebug(module + ' Annual detected [' + str(fcdigit) +']. ComicID assigned as ' + str(v[i]['WatchValues']['ComicID']))
+                                        annchk = "yes"
+                                        issuechk = myDB.selectone("SELECT * from readinglist WHERE ComicID=? AND Int_IssueNumber=?", [v[i]['WatchValues']['ComicID'], fcdigit]).fetchone()
+                                    else:
+                                        fcdigit = helpers.issuedigits(temploc)
+                                        issuechk = myDB.selectone("SELECT * from readinglist WHERE ComicID=? AND Int_IssueNumber=?", [v[i]['WatchValues']['ComicID'], fcdigit]).fetchone()
 
-                                        if issuechk is None:
-                                            logger.fdebug(module + ' No corresponding issue # found for ' + str(v[i]['WatchValues']['ComicID']))
-                                        else:
-                                            datematch = "True"
-                                            if len(arcmatch) >= 1 and tmpfc['ComicYear'] is not None:
-                                                #if the # of matches is more than 1, we need to make sure we get the right series
-                                                #compare the ReleaseDate for the issue, to the found issue date in the filename.
-                                                #if ReleaseDate doesn't exist, use IssueDate
-                                                #if no issue date was found, then ignore.
-                                                issyr = None
-                                                logger.fdebug('issuedate:' + str(issuechk['IssueDate']))
-                                                logger.fdebug('issuechk: ' + str(issuechk['IssueDate'][5:7]))
+                                    if issuechk is None:
+                                        logger.fdebug(module + ' No corresponding issue # found for ' + str(v[i]['WatchValues']['ComicID']))
+                                    else:
+                                        datematch = "True"
+                                        if len(arcmatch) >= 1 and arcmatch['issue_year'] is not None:
+                                            #if the # of matches is more than 1, we need to make sure we get the right series
+                                            #compare the ReleaseDate for the issue, to the found issue date in the filename.
+                                            #if ReleaseDate doesn't exist, use IssueDate
+                                            #if no issue date was found, then ignore.
+                                            issyr = None
+                                            logger.fdebug('issuedate:' + str(issuechk['IssueDate']))
+                                            logger.fdebug('issuechk: ' + str(issuechk['IssueDate'][5:7]))
 
-                                                logger.info('ReleaseDate: ' + str(issuechk['StoreDate']))
-                                                logger.info('IssueDate: ' + str(issuechk['IssueDate']))
-                                                if issuechk['StoreDate'] is not None and issuechk['StoreDate'] != '0000-00-00':
-                                                    monthval = issuechk['StoreDate']
-                                                    if int(issuechk['StoreDate'][:4]) < int(tmpfc['ComicYear']):
-                                                        logger.fdebug(module + ' ' + str(issuechk['StoreDate']) + ' is before the issue year of ' + str(tmpfc['ComicYear']) + ' that was discovered in the filename')
+                                            logger.info('StoreDate ' + str(issuechk['StoreDate']))
+                                            logger.info('IssueDate: ' + str(issuechk['IssueDate']))
+                                            if all([issuechk['StoreDate'] is not None, issuechk['StoreDate'] != '0000-00-00']) or all([issuechk['IssueDate'] is not None, issuechk['IssueDate'] != '0000-00-00']):
+                                                if issuechk['StoreDate'] == '0000-00-00':
+                                                    datevalue = issuechk['IssueDate']
+                                                    if int(datevalue[:4]) < int(arcmatch['issue_year']):
+                                                        logger.fdebug(module + ' ' + str(datevalue[:4]) + ' is before the issue year ' + str(arcmatch['issue_year']) + ' that was discovered in the filename')
                                                         datematch = "False"
-   
                                                 else:
-                                                    monthval = issuechk['IssueDate']
-                                                    if int(issuechk['IssueDate'][:4]) < int(tmpfc['ComicYear']):
-                                                        logger.fdebug(module + ' ' + str(issuechk['IssueDate']) + ' is before the issue year ' + str(tmpfc['ComicYear']) + ' that was discovered in the filename')
+                                                    datevalue = issuechk['StoreDate']
+                                                    if int(datevalue[:4]) < int(arcmatch['issue_year']):
+                                                        logger.fdebug(module + ' ' + str(datevalue[:4]) + ' is before the issue year of ' + str(arcmatch['issue_year']) + ' that was discovered in the filename')
                                                         datematch = "False"
+
+                                                monthval = datevalue
 
                                                 if int(monthval[5:7]) == 11 or int(monthval[5:7]) == 12:
                                                     issyr = int(monthval[:4]) + 1
@@ -500,15 +694,18 @@ class PostProcessor(object):
                                                     issyr = int(monthval[:4]) - 1
 
                                                 if datematch == "False" and issyr is not None:
-                                                    logger.fdebug(module + ' ' + str(issyr) + ' comparing to ' + str(tmpfc['ComicYear']) + ' : rechecking by month-check versus year.')
+                                                    logger.fdebug(module + ' ' + str(issyr) + ' comparing to ' + str(arcmatch['issue_year']) + ' : rechecking by month-check versus year.')
                                                     datematch = "True"
-                                                    if int(issyr) != int(tmpfc['ComicYear']):
+                                                    if int(issyr) != int(arcmatch['issue_year']):
                                                         logger.fdebug(module + '[.:FAIL:.] Issue is before the modified issue year of ' + str(issyr))
                                                         datematch = "False"
 
                                             else:
                                                 logger.info(module + ' Found matching issue # ' + str(fcdigit) + ' for ComicID: ' + str(v[i]['WatchValues']['ComicID']) + ' / IssueID: ' + str(issuechk['IssueID']))
 
+                                            logger.info('datematch: ' + str(datematch))
+                                            logger.info('temploc: ' + str(helpers.issuedigits(temploc)))
+                                            logger.info('arcissue: ' + str(helpers.issuedigits(v[i]['ArcValues']['IssueNumber'])))
                                             if datematch == "True" and helpers.issuedigits(temploc) == helpers.issuedigits(v[i]['ArcValues']['IssueNumber']):
                                                 passit = False
                                                 if len(manual_list) > 0:
@@ -521,116 +718,144 @@ class PostProcessor(object):
                                                                 break
                                                         passit = True
                                                 if passit == False:
-                                                    logger.info('[' + k + ' #' + str(issuechk['IssueNumber']) + '] MATCH: ' + tmpfc['ComicLocation'] + ' / ' + str(issuechk['IssueID']) + ' / ' + str(v[i]['ArcValues']['IssueID']))
-                                                    manual_arclist.append({"ComicLocation":   tmpfc['ComicLocation'],
-                                                                        "ComicID":         v[i]['WatchValues']['ComicID'],
-                                                                        "IssueID":         v[i]['ArcValues']['IssueID'],
-                                                                        "IssueNumber":     v[i]['ArcValues']['IssueNumber'],
-                                                                        "StoryArc":        v[i]['ArcValues']['StoryArc'],
-                                                                        "IssueArcID":      v[i]['ArcValues']['IssueArcID'],
-                                                                        "ReadingOrder":    v[i]['ArcValues']['ReadingOrder'],
-                                                                        "ComicName":       k})
+                                                    tmpfilename = helpers.conversion(arcmatch['comicfilename'])
+                                                    if arcmatch['sub']:
+                                                        clocation = os.path.join(arcmatch['comiclocation'], arcmatch['sub'], tmpfilename)
+                                                    else:
+                                                        clocation = os.path.join(arcmatch['comiclocation'], tmpfilename)
+                                                    logger.info('[' + k + ' #' + issuechk['IssueNumber'] + '] MATCH: ' + clocation + ' / ' + str(issuechk['IssueID']) + ' / ' + str(v[i]['ArcValues']['IssueID']))
+                                                    if v[i]['ArcValues']['Publisher'] is None:
+                                                        arcpublisher = v[i]['ArcValues']['ComicPublisher']
+                                                    else:
+                                                        arcpublisher = v[i]['ArcValues']['Publisher']
+
+                                                    manual_arclist.append({"ComicLocation":   clocation,
+                                                                           "Filename":        tmpfilename,
+                                                                           "ComicID":         v[i]['WatchValues']['ComicID'],
+                                                                           "IssueID":         v[i]['ArcValues']['IssueID'],
+                                                                           "IssueNumber":     v[i]['ArcValues']['IssueNumber'],
+                                                                           "StoryArc":        v[i]['ArcValues']['StoryArc'],
+                                                                           "StoryArcID":      v[i]['ArcValues']['StoryArcID'],
+                                                                           "IssueArcID":      v[i]['ArcValues']['IssueArcID'],
+                                                                           "Publisher":       arcpublisher,
+                                                                           "ReadingOrder":    v[i]['ArcValues']['ReadingOrder'],
+                                                                           "ComicName":       k})
+                                                    logger.fdebug(module + '[SUCCESSFUL MATCH: ' + k + '-' + v[i]['WatchValues']['ComicID'] + '] Match verified for ' + arcmatch['comicfilename'])
+                                                    break
                                             else:
-                                                logger.fdebug(module + ' Incorrect series - not populating..continuing post-processing')
-                                        fn+=1
+                                                logger.fdebug(module + '[NON-MATCH: ' + k + '-' + v[i]['WatchValues']['ComicID'] + '] Incorrect series - not populating..continuing post-processing')
+
                             i+=1
 
-                    if len(manual_arclist) > 0:
-                        logger.info('[STORY-ARC MANUAL POST-PROCESSING] I have found ' + str(len(manual_arclist)) + ' issues that belong to Story Arcs. Flinging them into the correct directories.')
-                        for ml in manual_arclist:
-                            issueid = ml['IssueID']
-                            ofilename = ml['ComicLocation']
-                            logger.info('[STORY-ARC POST-PROCESSING] Enabled for ' + ml['StoryArc'])
-                            arcdir = helpers.filesafe(ml['StoryArc'])
-                            if mylar.REPLACE_SPACES:
-                               arcdir = arcdir.replace(' ', mylar.REPLACE_CHAR)
+                    logger.fdebug(module + ' There are ' + str(len(manual_list)) + ' files found that match on your watchlist, ' + str(int(filelist['comiccount'] - len(manual_list))) + ' do not match anything.')
 
-                            if mylar.STORYARCDIR:
-                                storyarcd = os.path.join(mylar.DESTINATION_DIR, "StoryArcs", arcdir)
-                                logger.fdebug(module + ' Story Arc Directory set to : ' + storyarcd)
-                                grdst = storyarcd
+                delete_arc = []
+                if len(manual_arclist) > 0:
+                    logger.info('[STORY-ARC MANUAL POST-PROCESSING] I have found ' + str(len(manual_arclist)) + ' issues that belong to Story Arcs. Flinging them into the correct directories.')
+                    for ml in manual_arclist:
+                        issueid = ml['IssueID']
+                        ofilename = ml['ComicLocation']
+                        logger.info('[STORY-ARC POST-PROCESSING] Enabled for ' + ml['StoryArc'])
+
+                        grdst = helpers.arcformat(ml['StoryArc'], helpers.spantheyears(ml['StoryArcID']), ml['Publisher'])
+
+                        #tag the meta.
+                        metaresponse = None
+                        if mylar.ENABLE_META:
+                            logger.info('[STORY-ARC POST-PROCESSING] Metatagging enabled - proceeding...')
+                            try:
+                                import cmtagmylar
+                                metaresponse = cmtagmylar.run(self.nzb_folder, issueid=issueid, filename=ofilename)
+                            except ImportError:
+                                logger.warn(module + ' comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/')
+                                metaresponse = "fail"
+
+                            if metaresponse == "fail":
+                                logger.fdebug(module + ' Unable to write metadata successfully - check mylar.log file. Attempting to continue without metatagging...')
+                            elif metaresponse == "unrar error":
+                                logger.error(module + ' This is a corrupt archive - whether CRC errors or it is incomplete. Marking as BAD, and retrying it.')
+                                continue
+                                #launch failed download handling here.
+                            elif metaresponse.startswith('file not found'):
+                                filename_in_error = os.path.split(metaresponse, '||')[1]
+                                self._log("The file cannot be found in the location provided for metatagging to be used [" + filename_in_error + "]. Please verify it exists, and re-run if necessary. Attempting to continue without metatagging...")
+                                logger.error(module + ' The file cannot be found in the location provided for metatagging to be used [' + filename_in_error + ']. Please verify it exists, and re-run if necessary. Attempting to continue without metatagging...')
                             else:
-                                logger.fdebug(module + ' Story Arc Directory set to : ' + mylar.GRABBAG_DIR)
-                                storyarcd = os.path.join(mylar.DESTINATION_DIR, mylar.GRABBAG_DIR)
-                                grdst = storyarcd
-
-                            #tag the meta.
-                            if mylar.ENABLE_META:
-                                logger.info('[STORY-ARC POST-PROCESSING] Metatagging enabled - proceeding...')
-                                try:
-                                    import cmtagmylar
-                                    metaresponse = cmtagmylar.run(self.nzb_folder, issueid=issueid, filename=ofilename)
-                                except ImportError:
-                                    logger.warn(module + ' comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/')
-                                    metaresponse = "fail"
-
-                                if metaresponse == "fail":
-                                    logger.fdebug(module + ' Unable to write metadata successfully - check mylar.log file.')
-                                elif metaresponse == "unrar error":
-                                    logger.error(module + ' This is a corrupt archive - whether CRC errors or it is incomplete. Marking as BAD, and retrying it.')
-                                    #launch failed download handling here.
-                                else:
-                                    ofilename = os.path.split(metaresponse)[1]
-                                    logger.info(module + ' Sucessfully wrote metadata to .cbz (' + ofilename + ') - Continuing..')
-                                    self._log('Sucessfully wrote metadata to .cbz (' + ofilename + ') - proceeding...')
-
-                            filechecker.validateAndCreateDirectory(grdst, True, module=module)
+                                odir = os.path.split(metaresponse)[0]
+                                ofilename = os.path.split(metaresponse)[1]
+                                ext = os.path.splitext(metaresponse)[1]
+                                logger.info(module + ' Sucessfully wrote metadata to .cbz (' + ofilename + ') - Continuing..')
+                                self._log('Sucessfully wrote metadata to .cbz (' + ofilename + ') - proceeding...')
 
                             dfilename = ofilename
+                        else:
+                            dfilename = ml['Filename']
 
-                            #send to renamer here if valid.
-                            if mylar.RENAME_FILES:
-                                renamed_file = helpers.rename_param(ml['ComicID'], ml['ComicName'], ml['IssueNumber'], ofilename, issueid=ml['IssueID'], arc=ml['StoryArc'])
-                                if renamed_file:
-                                    dfilename = renamed_file['nfilename']
-                                    logger.fdebug(module + ' Renaming file to conform to configuration: ' + ofilename)
-                   
-                            #if from a StoryArc, check to see if we're appending the ReadingOrder to the filename
-                            if mylar.READ2FILENAME:
-                                                              
-                                logger.fdebug(module + ' readingorder#: ' + str(ml['ReadingOrder']))
-                                if int(ml['ReadingOrder']) < 10: readord = "00" + str(ml['ReadingOrder'])
-                                elif int(ml['ReadingOrder']) >= 10 and int(ml['ReadingOrder']) <= 99: readord = "0" + str(ml['ReadingOrder'])
-                                else: readord = str(ml['ReadingOrder'])
-                                dfilename = str(readord) + "-" + dfilename
-                            else:
-                                dfilename = dfilename
+                        checkdirectory = filechecker.validateAndCreateDirectory(grdst, True, module=module)
+                        if not checkdirectory:
+                            logger.warn(module + ' Error trying to validate/create directory. Aborting this process at this time.')
+                            self.valreturn.append({"self.log": self.log,
+                                                   "mode": 'stop'})
+                            return self.queue.put(self.valreturn)
 
-                            grab_dst = os.path.join(grdst, dfilename)
+                        #send to renamer here if valid.
+                        if mylar.RENAME_FILES:
+                            renamed_file = helpers.rename_param(ml['ComicID'], ml['ComicName'], ml['IssueNumber'], dfilename, issueid=ml['IssueID'], arc=ml['StoryArc'])
+                            if renamed_file:
+                                dfilename = renamed_file['nfilename']
+                                logger.fdebug(module + ' Renaming file to conform to configuration: ' + ofilename)
+                
+                        #if from a StoryArc, check to see if we're appending the ReadingOrder to the filename
+                        if mylar.READ2FILENAME:
+                                                    
+                            logger.fdebug(module + ' readingorder#: ' + str(ml['ReadingOrder']))
+                            if int(ml['ReadingOrder']) < 10: readord = "00" + str(ml['ReadingOrder'])
+                            elif int(ml['ReadingOrder']) >= 10 and int(ml['ReadingOrder']) <= 99: readord = "0" + str(ml['ReadingOrder'])
+                            else: readord = str(ml['ReadingOrder'])
+                            dfilename = str(readord) + "-" + os.path.split(dfilename)[1]
 
-                            logger.fdebug(module + ' Destination Path : ' + grab_dst)
-                            grab_src = os.path.join(self.nzb_folder, ofilename)
-                            logger.fdebug(module + ' Source Path : ' + grab_src)
+                        grab_dst = os.path.join(grdst, dfilename)
 
-                            logger.info(module + ' Moving ' + str(ofilename) + ' into directory : ' + str(grab_dst))
+                        logger.fdebug(module + ' Destination Path : ' + grab_dst)
+                        if metaresponse:
+                            src_location = odir
+                            grab_src = os.path.join(src_location, ofilename)
+                        else:
+                            src_location = ofilename
+                            grab_src = ofilename
 
-                            try:
-                                shutil.move(grab_src, grab_dst)
-                            except (OSError, IOError):
-                                logger.warn(module + ' Failed to move directory - check directories and manually re-run.')
-                                return
+                        logger.fdebug(module + ' Source Path : ' + grab_src)
 
-                            #tidyup old path
-                            try:
-                                pass
-                                #shutil.rmtree(self.nzb_folder)
-                            except (OSError, IOError):
-                                logger.warn(module + ' Failed to remove temporary directory - check directory and manually re-run.')
-                                return
+                        logger.info(module + '[ONE-OFF MODE][' + mylar.ARC_FILEOPS.upper() + '] ' + grab_src + ' into directory : ' + grab_dst)
+                        #this is also for issues that are part of a story arc, and don't belong to a watchlist series (ie. one-off's)
 
-                            logger.fdebug(module + ' Removed temporary directory : ' + self.nzb_folder)
+                        try:
+                            fileoperation = helpers.file_ops(grab_src, grab_dst, one_off=True)
+                            if not fileoperation:
+                                raise OSError
+                        except (OSError, IOError):
+                            logger.fdebug(module + '[ONE-OFF MODE][' + mylar.ARC_FILEOPS.upper() + '] Failure ' + grab_src + ' - check directories and manually re-run.')
+                            return
 
-                            #delete entry from nzblog table
-                            IssArcID = 'S' + str(ml['IssueArcID'])
-                            myDB.action('DELETE from nzblog WHERE IssueID=? AND SARC=?', [IssArcID,ml['StoryArc']])
+                        #tidyup old path
+                        if any([mylar.FILE_OPTS == 'move', mylar.FILE_OPTS == 'copy']):
+                            self.tidyup(src_location, True)
 
-                            logger.fdebug(module + ' IssueArcID: ' + str(ml['IssueArcID']))
-                            ctrlVal = {"IssueArcID":  ml['IssueArcID']}
-                            newVal = {"Status":       "Downloaded",
-                                      "Location":     grab_dst}
-                            logger.fdebug('writing: ' + str(newVal) + ' -- ' + str(ctrlVal))
-                            myDB.upsert("readinglist", newVal, ctrlVal)
-                            logger.fdebug(module + ' [' + ml['StoryArc'] + '] Post-Processing completed for: ' + grab_dst)
+                        #delete entry from nzblog table
+                        #if it was downloaded via mylar from the storyarc section, it will have an 'S' in the nzblog
+                        #if it was downloaded outside of mylar and/or not from the storyarc section, it will be a normal issueid in the nzblog
+                        #IssArcID = 'S' + str(ml['IssueArcID'])
+                        myDB.action('DELETE from nzblog WHERE IssueID=? AND SARC=?', ['S' + str(ml['IssueArcID']),ml['StoryArc']])
+                        myDB.action('DELETE from nzblog WHERE IssueID=? AND SARC=?', [ml['IssueArcID'],ml['StoryArc']])
+                            
+                        logger.fdebug(module + ' IssueArcID: ' + str(ml['IssueArcID']))
+                        ctrlVal = {"IssueArcID":  ml['IssueArcID']}
+                        newVal = {"Status":       "Downloaded",
+                                  "Location":     grab_dst}
+                        logger.fdebug('writing: ' + str(newVal) + ' -- ' + str(ctrlVal))
+                        myDB.upsert("readinglist", newVal, ctrlVal)
+
+                        logger.fdebug(module + ' [' + ml['StoryArc'] + '] Post-Processing completed for: ' + grab_dst)
 
             else:
                 nzbname = self.nzb_name
@@ -673,10 +898,11 @@ class PostProcessor(object):
                     logger.fdebug(module + ' Trying to locate nzbfile again with nzbname of : ' + str(nzbname))
                     nzbiss = myDB.selectone("SELECT * from nzblog WHERE nzbname=? or altnzbname=?", [nzbname, nzbname]).fetchone()
                     if nzbiss is None:
-                        logger.error(module + ' Unable to locate downloaded file to rename. PostProcessing aborted.')
-                        self._log('Unable to locate downloaded file to rename. PostProcessing aborted.')
+                        logger.error(module + ' Unable to locate downloaded file to rename within items I have snatched. Attempting to parse the filename directly and process.')
+                        #set it up to run manual post-processing on self.nzb_folder
+                        self._log('Unable to locate downloaded file to rename within items I have snatched. Attempting to parse the filename directly and process.')
                         self.valreturn.append({"self.log": self.log,
-                                               "mode": 'stop'})
+                                               "mode": 'outside'})
                         return self.queue.put(self.valreturn)
                     else:
                         self._log("I corrected and found the nzb as : " + str(nzbname))
@@ -708,6 +934,14 @@ class PostProcessor(object):
                             sandwich = issueid
                         elif 'G' in issueid or '-' in issueid:
                             sandwich = 1
+                        elif issueid == '1':
+                            logger.info(module + ' [ONE-OFF POST-PROCESSING] One-off download detected. Post-processing as a non-watchlist item.')
+                            sandwich = None #arbitrarily set it to None just to force one-off downloading below.
+                        else:
+                            logger.error(module + ' Download not detected as being initiated via Mylar. Unable to continue post-processing said item. Either download the issue with Mylar, or use manual post-processing to post-process.')
+                            self.valreturn.append({"self.log": self.log,
+                                                   "mode": 'stop'})
+                            return self.queue.put(self.valreturn)                            
                     else:
                         logger.info(module + ' Successfully located issue as an annual. Continuing.')
                         annchk = "yes"
@@ -724,7 +958,7 @@ class PostProcessor(object):
 #                        sandwich = issueid
 #                    elif 'G' in issueid or '-' in issueid:
 #                        sandwich = 1
-                if helpers.is_number(sandwich):
+                if sandwich is not None and helpers.is_number(sandwich):
                     if sandwich < 900000:
                         # if sandwich is less than 900000 it's a normal watchlist download. Bypass.
                         pass
@@ -732,11 +966,14 @@ class PostProcessor(object):
                     if issuenzb is None or 'S' in sandwich or int(sandwich) >= 900000:
                         # this has no issueID, therefore it's a one-off or a manual post-proc.
                         # At this point, let's just drop it into the Comic Location folder and forget about it..
-                        if 'S' in sandwich:
+                        if sandwich is not None and 'S' in sandwich:
                             self._log("One-off STORYARC mode enabled for Post-Processing for " + str(sarc))
                             logger.info(module + ' One-off STORYARC mode enabled for Post-Processing for ' + str(sarc))
+                            arcdir = helpers.filesafe(sarc)
+                            if mylar.REPLACE_SPACES:
+                               arcdir = arcdir.replace(' ', mylar.REPLACE_CHAR)
                             if mylar.STORYARCDIR:
-                                storyarcd = os.path.join(mylar.DESTINATION_DIR, "StoryArcs", sarc)
+                                storyarcd = os.path.join(mylar.DESTINATION_DIR, "StoryArcs", arcdir)
                                 self._log("StoryArc Directory set to : " + storyarcd)
                                 logger.info(module + ' Story Arc Directory set to : ' + storyarcd)
                             else:
@@ -767,12 +1004,14 @@ class PostProcessor(object):
                         if odir is None:
                             odir = self.nzb_folder
 
-                        issuearcid = re.sub('S', '', issueid)
-                        logger.fdebug(module + ' issuearcid:' + str(issuearcid))
-                        arcdata = myDB.selectone("SELECT * FROM readinglist WHERE IssueArcID=?", [issuearcid]).fetchone()
+                        if sandwich is not None and 'S' in sandwich:
+                            issuearcid = re.sub('S', '', issueid)
+                            logger.fdebug(module + ' issuearcid:' + str(issuearcid))
+                            arcdata = myDB.selectone("SELECT * FROM readinglist WHERE IssueArcID=?", [issuearcid]).fetchone()
 
-                        issueid = arcdata['IssueID']
+                            issueid = arcdata['IssueID']
                         #tag the meta.
+                        metaresponse = None
                         if mylar.ENABLE_META:
                             self._log("Metatagging enabled - proceeding...")
                             try:
@@ -783,16 +1022,22 @@ class PostProcessor(object):
                                 metaresponse = "fail"
 
                             if metaresponse == "fail":
-                                logger.fdebug(module + ' Unable to write metadata successfully - check mylar.log file.')
+                                logger.fdebug(module + ' Unable to write metadata successfully - check mylar.log file. Attempting to continue without metatagging...')
                             elif metaresponse == "unrar error":
                                 logger.error(module + ' This is a corrupt archive - whether CRC errors or it is incomplete. Marking as BAD, and retrying it.')
                                 #launch failed download handling here.
+                            elif metaresponse.startswith('file not found'):
+                                filename_in_error = os.path.split(metaresponse, '||')[1]
+                                self._log("The file cannot be found in the location provided for metatagging [" + filename_in_error + "]. Please verify it exists, and re-run if necessary. Attempting to continue without metatagging...")
+                                logger.error(module + ' The file cannot be found in the location provided for metagging [' + filename_in_error + ']. Please verify it exists, and re-run if necessary. Attempting to continue without metatagging...')
                             else:
+                                odir = os.path.split(metaresponse)[0]
                                 ofilename = os.path.split(metaresponse)[1]
+                                ext = os.path.splitext(metaresponse)[1]
                                 logger.info(module + ' Sucessfully wrote metadata to .cbz (' + ofilename + ') - Continuing..')
                                 self._log('Sucessfully wrote metadata to .cbz (' + ofilename + ') - proceeding...')
 
-                        if 'S' in sandwich:
+                        if sandwich is not None and 'S' in sandwich:
                             if mylar.STORYARCDIR:
                                 grdst = storyarcd
                             else:
@@ -803,9 +1048,14 @@ class PostProcessor(object):
                             else:
                                 grdst = mylar.DESTINATION_DIR
 
-                        filechecker.validateAndCreateDirectory(grdst, True, module=module)
+                        checkdirectory = filechecker.validateAndCreateDirectory(grdst, True, module=module)
+                        if not checkdirectory:
+                            logger.warn(module + ' Error trying to validate/create directory. Aborting this process at this time.')
+                            self.valreturn.append({"self.log": self.log,
+                                                   "mode": 'stop'})
+                            return self.queue.put(self.valreturn)
 
-                        if 'S' in sandwich:
+                        if sandwich is not None and 'S' in sandwich:
                             #if from a StoryArc, check to see if we're appending the ReadingOrder to the filename
                             if mylar.READ2FILENAME:
                                 logger.fdebug(module + ' readingorder#: ' + str(arcdata['ReadingOrder']))
@@ -822,32 +1072,34 @@ class PostProcessor(object):
                         self._log("Destination Path : " + grab_dst)
 
                         logger.info(module + ' Destination Path : ' + grab_dst)
-                        grab_src = os.path.join(self.nzb_folder, ofilename)
+                        if metaresponse:
+                            src_location = odir
+                        else:
+                            src_location = self.nzb_folder
+
+                        grab_src = os.path.join(src_location, ofilename)
                         self._log("Source Path : " + grab_src)
                         logger.info(module + ' Source Path : ' + grab_src)
 
-                        logger.info(module + ' Moving ' + str(ofilename) + ' into directory : ' + str(grab_dst))
+                        logger.info(module + '[' + mylar.FILE_OPTS + '] ' + str(ofilename) + ' into directory : ' + str(grab_dst))
 
                         try:
-                            shutil.move(grab_src, grab_dst)
+                            fileoperation = helpers.file_ops(grab_src, grab_dst)
+                            if not fileoperation:
+                                raise OSError
                         except (OSError, IOError):
-                            self._log("Failed to move directory - check directories and manually re-run.")
-                            logger.debug(module + ' Failed to move directory - check directories and manually re-run.')
+                            logger.fdebug(module + ' Failed to ' + mylar.FILE_OPTS + ' ' + src + ' - check directories and manually re-run.')
+                            self._log("Failed to " + mylar.FILE_OPTS + " " + src + " - check directories and manually re-run.")
                             return
+
                         #tidyup old path
-                        try:
-                            shutil.rmtree(self.nzb_folder)
-                        except (OSError, IOError):
-                            self._log("Failed to remove temporary directory.")
-                            logger.debug(module + ' Failed to remove temporary directory - check directory and manually re-run.')
-                            return
+                        if any([mylar.FILE_OPTS == 'move', mylar.FILE_OPTS == 'copy']):
+                            self.tidyup(src_location, True)
 
-                        logger.debug(module + ' Removed temporary directory : ' + self.nzb_folder)
-                        self._log("Removed temporary directory : " + self.nzb_folder)
                         #delete entry from nzblog table
                         myDB.action('DELETE from nzblog WHERE issueid=?', [issueid])
 
-                        if 'S' in issueid:
+                        if sandwich is not None and 'S' in sandwich:
                             #issuearcid = re.sub('S', '', issueid)
                             logger.info(module + ' IssueArcID is : ' + str(issuearcid))
                             ctrlVal = {"IssueArcID":  issuearcid}
@@ -858,8 +1110,8 @@ class PostProcessor(object):
                             logger.info('wrote.')
                             logger.info(module + ' Updated status to Downloaded')
 
-                        logger.info(module + ' Post-Processing completed for: [' + sarc + '] ' + grab_dst)
-                        self._log(u"Post Processing SUCCESSFUL! ")
+                            logger.info(module + ' Post-Processing completed for: [' + sarc + '] ' + grab_dst)
+                            self._log(u"Post Processing SUCCESSFUL! ")
 
                         self.valreturn.append({"self.log": self.log,
                                                "mode": 'stop'})
@@ -868,10 +1120,15 @@ class PostProcessor(object):
 
             if self.nzb_name == 'Manual Run':
                 #loop through the hits here.
-                if len(manual_list) == 0:
+                if len(manual_list) == 0 and len(manual_arclist) == 0:
                     logger.info(module + ' No matches for Manual Run ... exiting.')
                     return
-
+                elif len(manual_arclist) > 0 and len(manual_list) == 0:
+                    logger.info(module + ' Manual post-processing completed for ' + str(len(manual_arclist)) + ' story-arc issues.')
+                    return
+                elif len(manual_arclist) > 0:
+                    logger.info(module + ' Manual post-processing completed for ' + str(len(manual_arclist)) + ' story-arc issues.')
+  
                 i = 0
                 for ml in manual_list:
                     i+=1
@@ -883,7 +1140,7 @@ class PostProcessor(object):
                         waiting = False
                         try:
                             ctime = max(os.path.getctime(ml['ComicLocation']), os.path.getmtime(ml['ComicLocation']))
-                            if time.time() > ctime > time.time() - 15:
+                            if time.time() > ctime > time.time() - 10:
                                 time.sleep(max(time.time() - ctime, 0))
                                 waiting = True
                             else:
@@ -893,10 +1150,22 @@ class PostProcessor(object):
                             break
 
                     dupthis = helpers.duplicate_filecheck(ml['ComicLocation'], ComicID=comicid, IssueID=issueid)
-                    if dupthis == "write":
+                    if dupthis[0]['action'] == 'dupe_src' or dupthis[0]['action'] == 'dupe_file':
+                        #check if duplicate dump folder is enabled and if so move duplicate file in there for manual intervention.
+                        #'dupe_file' - do not write new file as existing file is better quality
+                        #'dupe_src' - write new file, as existing file is a lesser quality (dupe)
+                        if mylar.DDUMP and not all([mylar.DUPLICATE_DUMP is None, mylar.DUPLICATE_DUMP == '']): #DUPLICATE_DUMP
+                            dupchkit = self.duplicate_process(dupthis)
+                            if dupchkit == False:
+                                logger.warn('Unable to move duplicate file - skipping post-processing of this file.')
+                                continue
+
+
+                    if dupthis[0]['action'] == "write" or dupthis[0]['action'] == 'dupe_src':
                         stat = ' [' + str(i) + '/' + str(len(manual_list)) + ']'
                         self.Process_next(comicid, issueid, issuenumOG, ml, stat)
                         dupthis = None
+
                 logger.info(module + ' Manual post-processing completed for ' + str(i) + ' issues.')
                 return
             else:
@@ -904,7 +1173,23 @@ class PostProcessor(object):
                 issuenumOG = issuenzb['Issue_Number']
                 #the self.nzb_folder should contain only the existing filename
                 dupthis = helpers.duplicate_filecheck(self.nzb_folder, ComicID=comicid, IssueID=issueid)
-                if dupthis == "write":
+                if dupthis[0]['action'] == 'dupe_src' or dupthis[0]['action'] == 'dupe_file':
+                    #check if duplicate dump folder is enabled and if so move duplicate file in there for manual intervention.
+                    #'dupe_file' - do not write new file as existing file is better quality
+                    #'dupe_src' - write new file, as existing file is a lesser quality (dupe)
+                    if mylar.DUPLICATE_DUMP:
+                        if mylar.DDUMP and not all([mylar.DUPLICATE_DUMP is None, mylar.DUPLICATE_DUMP == '']): 
+                            dupchkit = self.duplicate_process(dupthis)
+                            if dupchkit == False:
+                                logger.warn('Unable to move duplicate file - skipping post-processing of this file.')
+                                self.valreturn.append({"self.log": self.log,
+                                                       "mode": 'stop',
+                                                       "issueid": issueid,
+                                                       "comicid": comicid})
+
+                                return self.queue.put(self.valreturn)
+ 
+                if dupthis[0]['action'] == "write" or dupthis[0]['action'] == 'dupe_src':
                     return self.Process_next(comicid, issueid, issuenumOG)
                 else:
                     self.valreturn.append({"self.log": self.log,
@@ -914,18 +1199,17 @@ class PostProcessor(object):
 
                     return self.queue.put(self.valreturn)
 
-
     def Process_next(self, comicid, issueid, issuenumOG, ml=None, stat=None):
             if stat is None: stat = ' [1/1]'
             module = self.module
             annchk = "no"
-            extensions = ('.cbr', '.cbz')
+            extensions = ('.cbr', '.cbz', '.pdf')
             snatchedtorrent = False
             myDB = db.DBConnection()
             comicnzb = myDB.selectone("SELECT * from comics WHERE comicid=?", [comicid]).fetchone()
             issuenzb = myDB.selectone("SELECT * from issues WHERE issueid=? AND comicid=? AND ComicName NOT NULL", [issueid, comicid]).fetchone()
             if ml is not None and mylar.SNATCHEDTORRENT_NOTIFY:
-                snatchnzb = myDB.selectone("SELECT * from snatched WHERE IssueID=? AND ComicID=? AND (provider=? OR provider=?) AND Status='Snatched'", [issueid, comicid, 'KAT', '32P']).fetchone()
+                snatchnzb = myDB.selectone("SELECT * from snatched WHERE IssueID=? AND ComicID=? AND (provider=? OR provider=? OR provider=? OR provider=?) AND Status='Snatched'", [issueid, comicid, 'TPSE', 'DEM', 'WWT', '32P']).fetchone()
                 if snatchnzb is None:
                     logger.fdebug(module + ' Was not downloaded with Mylar and the usage of torrents. Disabling torrent manual post-processing completion notification.')
                 else:
@@ -969,10 +1253,25 @@ class PostProcessor(object):
             elif u'\u221e' in issuenum:
                 #issnum = utf-8 will encode the infinity symbol without any help
                 issuenum = 'infinity'
+            else:
+                issue_exceptions = ['A',
+                                    'B',
+                                    'C',
+                                    'X',
+                                    'O']
+
+                exceptionmatch = [x for x in issue_exceptions if x.lower() in issuenum.lower()]
+                if exceptionmatch:
+                    logger.fdebug('[FILECHECKER] We matched on : ' + str(exceptionmatch))
+                    for x in exceptionmatch:
+                        issuenum = re.sub("[^0-9]", "", issuenum)
+                        issue_except = x
 
             if '.' in issuenum:
                 iss_find = issuenum.find('.')
                 iss_b4dec = issuenum[:iss_find]
+                if iss_b4dec == '':
+                    iss_b4dec = '0'
                 iss_decval = issuenum[iss_find +1:]
                 if iss_decval.endswith('.'): iss_decval = iss_decval[:-1]
                 if int(iss_decval) == 0:
@@ -1005,15 +1304,32 @@ class PostProcessor(object):
 
             logger.fdebug(module + ' Zero Suppression set to : ' + str(mylar.ZERO_LEVEL_N))
 
-            if str(len(issueno)) > 1:
-                if issueno.isalpha():
-                    self._log('issue detected as an alpha.')
-                    prettycomiss = str(issueno)
-                elif int(issueno) < 0:
-                    self._log("issue detected is a negative")
-                    prettycomiss = '-' + str(zeroadd) + str(abs(issueno))
-                elif int(issueno) < 10:
-                    self._log("issue detected less than 10")
+            prettycomiss = None
+
+            if issueno.isalpha():
+                logger.fdebug('issue detected as an alpha.')
+                prettycomiss = str(issueno)
+            else:
+                try:
+                    x = float(issueno)
+                    #validity check
+                    if x < 0:
+                        logger.info('I\'ve encountered a negative issue #: ' + str(issueno) + '. Trying to accomodate.')
+                        prettycomiss = '-' + str(zeroadd) + str(issueno[1:])
+                    elif x >= 0:
+                        pass
+                    else:
+                        raise ValueError
+                except ValueError, e:
+                    logger.warn('Unable to properly determine issue number [' + str(issueno) + '] - you should probably log this on github for help.')
+                    return
+
+            if prettycomiss is None and len(str(issueno)) > 0:
+                #if int(issueno) < 0:
+                #    self._log("issue detected is a negative")
+                #    prettycomiss = '-' + str(zeroadd) + str(abs(issueno))
+                if int(issueno) < 10:
+                    logger.fdebug('issue detected less than 10')
                     if '.' in iss:
                         if int(iss_decval) > 0:
                             issueno = str(iss)
@@ -1024,9 +1340,9 @@ class PostProcessor(object):
                         prettycomiss = str(zeroadd) + str(iss)
                     if issue_except != 'None':
                         prettycomiss = str(prettycomiss) + issue_except
-                    self._log("Zero level supplement set to " + str(mylar.ZERO_LEVEL_N) + ". Issue will be set as : " + str(prettycomiss))
+                    logger.fdebug('Zero level supplement set to ' + str(mylar.ZERO_LEVEL_N) + '. Issue will be set as : ' + str(prettycomiss))
                 elif int(issueno) >= 10 and int(issueno) < 100:
-                    self._log("issue detected greater than 10, but less than 100")
+                    logger.fdebug('issue detected greater than 10, but less than 100')
                     if mylar.ZERO_LEVEL_N == "none":
                         zeroadd = ""
                     else:
@@ -1041,19 +1357,73 @@ class PostProcessor(object):
                         prettycomiss = str(zeroadd) + str(iss)
                     if issue_except != 'None':
                         prettycomiss = str(prettycomiss) + issue_except
-                    self._log("Zero level supplement set to " + str(mylar.ZERO_LEVEL_N) + ".Issue will be set as : " + str(prettycomiss))
+                    logger.fdebug('Zero level supplement set to ' + str(mylar.ZERO_LEVEL_N) + '.Issue will be set as : ' + str(prettycomiss))
                 else:
-                    self._log("issue detected greater than 100")
+                    logger.fdebug('issue detected greater than 100')
                     if '.' in iss:
                         if int(iss_decval) > 0:
                             issueno = str(iss)
                     prettycomiss = str(issueno)
                     if issue_except != 'None':
                         prettycomiss = str(prettycomiss) + issue_except
-                    self._log("Zero level supplement set to " + str(mylar.ZERO_LEVEL_N) + ". Issue will be set as : " + str(prettycomiss))
-            else:
+                    logger.fdebug('Zero level supplement set to ' + str(mylar.ZERO_LEVEL_N) + '. Issue will be set as : ' + str(prettycomiss))
+
+            elif len(str(issueno)) == 0:
                 prettycomiss = str(issueno)
-                self._log("issue length error - cannot determine length. Defaulting to None:  " + str(prettycomiss))
+                logger.fdebug('issue length error - cannot determine length. Defaulting to None:  ' + str(prettycomiss))
+
+#start outdated?
+#            if str(len(issueno)) > 1:
+#                if issueno.isalpha():
+#                    self._log('issue detected as an alpha.')
+#                    prettycomiss = str(issueno)
+
+#                elif int(issueno) < 0:
+#                    self._log("issue detected is a negative")
+#                    prettycomiss = '-' + str(zeroadd) + str(abs(issueno))
+#                elif int(issueno) < 10:
+#                    self._log("issue detected less than 10")
+#                    if '.' in iss:
+#                        if int(iss_decval) > 0:
+#                            issueno = str(iss)
+#                            prettycomiss = str(zeroadd) + str(iss)
+#                        else:
+#                            prettycomiss = str(zeroadd) + str(int(issueno))
+#                    else:
+#                        prettycomiss = str(zeroadd) + str(iss)
+#                    if issue_except != 'None':
+#                        prettycomiss = str(prettycomiss) + issue_except
+#                    self._log("Zero level supplement set to " + str(mylar.ZERO_LEVEL_N) + ". Issue will be set as : " + str(prettycomiss))
+#                elif int(issueno) >= 10 and int(issueno) < 100:
+#                    self._log("issue detected greater than 10, but less than 100")
+#                    if mylar.ZERO_LEVEL_N == "none":
+#                        zeroadd = ""
+#                    else:
+#                        zeroadd = "0"
+#                    if '.' in iss:
+#                        if int(iss_decval) > 0:
+#                            issueno = str(iss)
+#                            prettycomiss = str(zeroadd) + str(iss)
+#                        else:
+#                           prettycomiss = str(zeroadd) + str(int(issueno))
+#                    else:
+#                        prettycomiss = str(zeroadd) + str(iss)
+#                    if issue_except != 'None':
+#                        prettycomiss = str(prettycomiss) + issue_except
+#                    self._log("Zero level supplement set to " + str(mylar.ZERO_LEVEL_N) + ".Issue will be set as : " + str(prettycomiss))
+#                else:
+#                    self._log("issue detected greater than 100")
+#                    if '.' in iss:
+#                        if int(iss_decval) > 0:
+#                            issueno = str(iss)
+#                    prettycomiss = str(issueno)
+#                    if issue_except != 'None':
+#                        prettycomiss = str(prettycomiss) + issue_except
+#                    self._log("Zero level supplement set to " + str(mylar.ZERO_LEVEL_N) + ". Issue will be set as : " + str(prettycomiss))
+#            else:
+#                prettycomiss = str(issueno)
+#                self._log("issue length error - cannot determine length. Defaulting to None:  " + str(prettycomiss))
+#--end outdated?
 
             if annchk == "yes":
                 self._log("Annual detected.")
@@ -1063,6 +1433,8 @@ class PostProcessor(object):
             logger.fdebug(module + ' Issue Year : ' + str(issueyear))
             month = issuenzb['IssueDate'][5:7].replace('-', '').strip()
             month_name = helpers.fullmonth(month)
+            if month_name is None:
+                month_name = 'None'
 #            comicnzb= myDB.action("SELECT * from comics WHERE comicid=?", [comicid]).fetchone()
             publisher = comicnzb['ComicPublisher']
             self._log("Publisher: " + publisher)
@@ -1116,21 +1488,63 @@ class PostProcessor(object):
 
             ofilename = None
 
+            #if it's a Manual Run, use the ml['ComicLocation'] for the exact filename.
+            if ml is None:
+                ofilename = None
+                for root, dirnames, filenames in os.walk(self.nzb_folder, followlinks=True):
+                    for filename in filenames:
+                        if filename.lower().endswith(extensions):
+                            odir = root
+                            logger.fdebug(module + ' odir (root): ' + odir)
+                            ofilename = filename
+                            logger.fdebug(module + ' ofilename: ' + ofilename)
+                            path, ext = os.path.splitext(ofilename)
+                try:
+                    if odir is None:
+                        logger.fdebug(module + ' No root folder set.')
+                        odir = self.nzb_folder
+                except:
+                    logger.error(module + ' unable to set root folder. Forcing it due to some error above most likely.')
+                    odir = self.nzb_folder
+
+                if ofilename is None:
+                    self._log("Unable to locate a valid cbr/cbz file. Aborting post-processing for this filename.")
+                    logger.error(module + ' unable to locate a valid cbr/cbz file. Aborting post-processing for this filename.')
+                    self.valreturn.append({"self.log": self.log,
+                                           "mode": 'stop'})
+                    return self.queue.put(self.valreturn)
+                logger.fdebug(module + ' odir: ' + odir)
+                logger.fdebug(module + ' ofilename: ' + ofilename)
+
+
             #if meta-tagging is not enabled, we need to declare the check as being fail
             #if meta-tagging is enabled, it gets changed just below to a default of pass
             pcheck = "fail"
 
+            #make sure we know any sub-folder off of self.nzb_folder that is being used so when we do
+            #tidy-up we can remove the empty directory too. odir is the original COMPLETE path at this point
+            if ml is None:
+                subpath = odir
+            else:
+                subpath = os.path.split(ml['ComicLocation'])[0]
+
             #tag the meta.
             if mylar.ENABLE_META:
+
                 self._log("Metatagging enabled - proceeding...")
                 logger.fdebug(module + ' Metatagging enabled - proceeding...')
                 pcheck = "pass"
+                if mylar.CMTAG_START_YEAR_AS_VOLUME:
+                    vol_label = seriesyear
+                else:
+                    vol_label = comversion
+
                 try:
                     import cmtagmylar
                     if ml is None:
-                        pcheck = cmtagmylar.run(self.nzb_folder, issueid=issueid, comversion=comversion)
+                        pcheck = cmtagmylar.run(self.nzb_folder, issueid=issueid, comversion=vol_label, filename=os.path.join(odir, ofilename))
                     else:
-                        pcheck = cmtagmylar.run(self.nzb_folder, issueid=issueid, comversion=comversion, manual="yes", filename=ml['ComicLocation'])
+                        pcheck = cmtagmylar.run(self.nzb_folder, issueid=issueid, comversion=vol_label, manual="yes", filename=ml['ComicLocation'])
 
                 except ImportError:
                     logger.fdebug(module + ' comictaggerlib not found on system. Ensure the ENTIRE lib directory is located within mylar/lib/comictaggerlib/')
@@ -1153,10 +1567,24 @@ class PostProcessor(object):
                                            "issuenumber": issuenzb['Issue_Number'],
                                            "annchk":      annchk})
                     return self.queue.put(self.valreturn)
+                elif pcheck.startswith('file not found'):
+                    filename_in_error = os.path.split(pcheck, '||')[1]
+                    self._log("The file cannot be found in the location provided [" + filename_in_error + "]. Please verify it exists, and re-run if necessary. Aborting.")
+                    logger.error(module + ' The file cannot be found in the location provided [' + filename_in_error + ']. Please verify it exists, and re-run if necessary. Aborting')
+                    self.valreturn.append({"self.log": self.log,
+                                           "mode": 'stop'})
+                    return self.queue.put(self.valreturn)
+
                 else:
-                    otofilename = pcheck
+                    #need to set the filename source as the new name of the file returned from comictagger.
+                    odir = os.path.split(pcheck)[0]
+                    ofilename = os.path.split(pcheck)[1]
+                    ext = os.path.splitext(ofilename)[1]
                     self._log("Sucessfully wrote metadata to .cbz - Continuing..")
-                    logger.info(module + ' Sucessfully wrote metadata to .cbz (' + os.path.split(otofilename)[1] + ') - Continuing..')
+                    logger.info(module + ' Sucessfully wrote metadata to .cbz (' + ofilename + ') - Continuing..')
+                    #if this is successful, and we're copying to dst then set the file op to move this cbz so we 
+                    #don't leave a cbr/cbz in the origianl directory.
+                    #self.fileop = shutil.move
             #Run Pre-script
 
             if mylar.ENABLE_PRE_SCRIPTS:
@@ -1196,45 +1624,56 @@ class PostProcessor(object):
 
 
             #if it's a Manual Run, use the ml['ComicLocation'] for the exact filename.
-            if ml is None:
-                ofilename = None
-                for root, dirnames, filenames in os.walk(self.nzb_folder, followlinks=True):
-                    for filename in filenames:
-                        if filename.lower().endswith(extensions):
-                            odir = root
-                            logger.fdebug(module + ' odir (root): ' + odir)
-                            ofilename = filename
-                            logger.fdebug(module + ' ofilename: ' + ofilename)
-                            path, ext = os.path.splitext(ofilename)
-                try:
-                    if odir is None:
-                        logger.fdebug(module + ' No root folder set.')
-                        odir = self.nzb_folder
-                except:
-                    logger.error(module + ' unable to set root folder. Forcing it due to some error above most likely.')
-                    odir = self.nzb_folder
+#            if ml is None:
+#                ofilename = None
+#                for root, dirnames, filenames in os.walk(self.nzb_folder, followlinks=True):
+#                    for filename in filenames:
+#                        if filename.lower().endswith(extensions):
+#                            odir = root
+#                            logger.fdebug(module + ' odir (root): ' + odir)
+#                            ofilename = filename
+#                            logger.fdebug(module + ' ofilename: ' + ofilename)
+#                            path, ext = os.path.splitext(ofilename)
+#                try:
+#                    if odir is None:
+#                        logger.fdebug(module + ' No root folder set.')
+#                        odir = self.nzb_folder
+#                except:
+#                    logger.error(module + ' unable to set root folder. Forcing it due to some error above most likely.')
+#                    odir = self.nzb_folde
+#
+#                if ofilename is None:
+#                    self._log("Unable to locate a valid cbr/cbz file. Aborting post-processing for this filename.")
+#                    logger.error(module + ' unable to locate a valid cbr/cbz file. Aborting post-processing for this filename.')
+#                    self.valreturn.append({"self.log": self.log,
+#                                           "mode": 'stop'})
+#                    return self.queue.put(self.valreturn)
+#                logger.fdebug(module + ' odir: ' + odir)
+#                logger.fdebug(module + ' ofilename: ' + ofilename)
 
-                if ofilename is None:
-                    self._log("Unable to locate a valid cbr/cbz file. Aborting post-processing for this filename.")
-                    logger.error(module + ' unable to locate a valid cbr/cbz file. Aborting post-processing for this filename.')
+            if ml:
+
+                if pcheck == "fail":
+                    odir, ofilename = os.path.split(ml['ComicLocation'])
+                elif pcheck:
+                    #odir, ofilename already set. Carry it through.
+                    pass
+                else:
+                    odir = os.path.split(ml['ComicLocation'])[0]
+                logger.fdebug(module + ' ofilename:' + ofilename)
+                #ofilename = otofilename
+                if any([ofilename == odir, ofilename == odir[:-1], ofilename == '']):
+                    self._log("There was a problem deciphering the filename/directory - please verify that the filename : [" + ofilename + "] exists in location [" + odir + "]. Aborting.")
+                    logger.error(module + ' There was a problem deciphering the filename/directory - please verify that the filename : [' + ofilename + '] exists in location [' + odir + ']. Aborting.')
                     self.valreturn.append({"self.log": self.log,
                                            "mode": 'stop'})
                     return self.queue.put(self.valreturn)
                 logger.fdebug(module + ' odir: ' + odir)
                 logger.fdebug(module + ' ofilename: ' + ofilename)
-
-            else:
-                if pcheck == "fail":
-                    otofilename = ml['ComicLocation']
-                logger.fdebug(module + ' otofilename:' + otofilename)
-                odir, ofilename = os.path.split(otofilename)
-                logger.fdebug(module + ' odir: ' + odir)
-                logger.fdebug(module + ' ofilename: ' + ofilename)
-                path, ext = os.path.splitext(ofilename)
-                logger.fdebug(module + ' path: ' + path)
+                ext = os.path.splitext(ofilename)[1]
                 logger.fdebug(module + ' ext:' + ext)
 
-            if ofilename is None:
+            if ofilename is None or ofilename == '':
                 logger.error(module + ' Aborting PostProcessing - the filename does not exist in the location given. Make sure that ' + self.nzb_folder + ' exists and is the correct location.')
                 self.valreturn.append({"self.log": self.log,
                                        "mode": 'stop'})
@@ -1257,14 +1696,20 @@ class PostProcessor(object):
                 if mylar.REPLACE_SPACES:
                     #mylar.REPLACE_CHAR ...determines what to replace spaces with underscore or dot
                     nfilename = nfilename.replace(' ', mylar.REPLACE_CHAR)
-            nfilename = re.sub('[\,\:\?]', '', nfilename)
-            nfilename = re.sub('[\/]', '-', nfilename)
+            nfilename = re.sub('[\,\:\?\"\']', '', nfilename)
+            nfilename = re.sub('[\/\*]', '-', nfilename)
             self._log("New Filename: " + nfilename)
-            logger.fdebug(module + ' New Filename: ' + str(nfilename))
+            logger.fdebug(module + ' New Filename: ' + nfilename)
 
             #src = os.path.join(self.nzb_folder, ofilename)
             src = os.path.join(odir, ofilename)
-            filechecker.validateAndCreateDirectory(comlocation, True, module=module)
+            checkdirectory = filechecker.validateAndCreateDirectory(comlocation, True, module=module)
+            if not checkdirectory:
+                logger.warn(module + ' Error trying to validate/create directory. Aborting this process at this time.')
+                self.valreturn.append({"self.log": self.log,
+                                       "mode": 'stop'})
+                return self.queue.put(self.valreturn)
+
 
             if mylar.LOWERCASE_FILENAMES:
                 dst = os.path.join(comlocation, (nfilename + ext).lower())
@@ -1284,90 +1729,84 @@ class PostProcessor(object):
                 logger.fdebug(module + ' ofilename:' + ofilename)
                 logger.fdebug(module + ' nfilename:' + nfilename + ext)
                 if mylar.RENAME_FILES:
-                    if str(ofilename) != str(nfilename + ext):
+                    if ofilename != (nfilename + ext):
                         logger.fdebug(module + ' Renaming ' + os.path.join(odir, ofilename) + ' ..to.. ' + os.path.join(odir, nfilename + ext))
-                        os.rename(os.path.join(odir, ofilename), os.path.join(odir, nfilename + ext))
+                        #if mylar.FILE_OPTS == 'move':
+                        #    os.rename(os.path.join(odir, ofilename), os.path.join(odir, nfilename + ext))
+                        # else:
+                        #    self.fileop(os.path.join(odir, ofilename), os.path.join(odir, nfilename + ext))
                     else:
                         logger.fdebug(module + ' Filename is identical as original, not renaming.')
 
                 #src = os.path.join(self.nzb_folder, str(nfilename + ext))
-                src = os.path.join(odir, nfilename + ext)
+                src = os.path.join(odir, ofilename)
                 try:
-                    shutil.move(src, dst)
+                    self._log("[" + mylar.FILE_OPTS + "] " + src + " - to - " + dst)
+                    fileoperation = helpers.file_ops(src, dst)
+                    if not fileoperation:
+                        raise OSError
                 except (OSError, IOError):
-                    self._log("Failed to move directory - check directories and manually re-run.")
+                    self._log("Failed to " + mylar.FILE_OPTS + " " + src  + " - check directories and manually re-run.")
                     self._log("Post-Processing ABORTED.")
-                    logger.warn(module + ' Failed to move directory : ' + src + ' to ' + dst + ' - check directory and manually re-run')
+                    logger.warn(module + ' Failed to ' + mylar.FILE_OPTS + ' ' + src + ' - check directories and manually re-run.')
                     logger.warn(module + ' Post-Processing ABORTED')
                     self.valreturn.append({"self.log": self.log,
                                            "mode": 'stop'})
                     return self.queue.put(self.valreturn)
 
                 #tidyup old path
-                try:
-                    shutil.rmtree(self.nzb_folder)
-                except (OSError, IOError):
-                    self._log("Failed to remove temporary directory - check directory and manually re-run.")
-                    self._log("Post-Processing ABORTED.")
-                    logger.warn(module + ' Failed to remove temporary directory : ' + self.nzb_folder)
-                    logger.warn(module + ' Post-Processing ABORTED')
-                    self.valreturn.append({"self.log": self.log,
-                                           "mode": 'stop'})
-                    return self.queue.put(self.valreturn)
-                self._log("Removed temporary directory : " + self.nzb_folder)
-                logger.fdebug(module + ' Removed temporary directory : ' + self.nzb_folder)
+                if any([mylar.FILE_OPTS == 'move', mylar.FILE_OPTS == 'copy']):
+                    self.tidyup(odir, True)
+
             else:
                 #downtype = for use with updater on history table to set status to 'Post-Processed'
                 downtype = 'PP'
                 #Manual Run, this is the portion.
                 src = os.path.join(odir, ofilename)
                 if mylar.RENAME_FILES:
-                    if str(ofilename) != str(nfilename + ext):
-                        logger.fdebug(module + ' Renaming ' + os.path.join(odir, str(ofilename)) + ' ..to.. ' + os.path.join(odir, self.nzb_folder, str(nfilename + ext)))
-                        os.rename(os.path.join(odir, str(ofilename)), os.path.join(odir, str(nfilename + ext)))
-                        src = os.path.join(odir, str(nfilename + ext))
+                    if ofilename != (nfilename + ext):
+                        logger.fdebug(module + ' Renaming ' + os.path.join(odir, ofilename)) #' ..to.. ' + os.path.join(odir, self.nzb_folder, str(nfilename + ext)))
+                        #os.rename(os.path.join(odir, str(ofilename)), os.path.join(odir, str(nfilename + ext)))
+                        #src = os.path.join(odir, str(nfilename + ext))
                     else:
                         logger.fdebug(module + ' Filename is identical as original, not renaming.')
 
                 logger.fdebug(module + ' odir src : ' + src)
-                logger.fdebug(module + ' Moving ' + src + ' ... to ... ' + dst)
+                logger.fdebug(module + '[' + mylar.FILE_OPTS + '] ' + src + ' ... to ... ' + dst)
                 try:
-                    shutil.move(src, dst)
+                    fileoperation = helpers.file_ops(src, dst)
+                    if not fileoperation:
+                        raise OSError
                 except (OSError, IOError):
-                    logger.fdebug(module + ' Failed to move directory - check directories and manually re-run.')
+                    logger.fdebug(module + ' Failed to ' + mylar.FILE_OPTS + ' ' + src + ' - check directories and manually re-run.')
                     logger.fdebug(module + ' Post-Processing ABORTED.')
 
                     self.valreturn.append({"self.log": self.log,
                                            "mode": 'stop'})
                     return self.queue.put(self.valreturn)
-                logger.fdebug(module + ' Successfully moved to : ' + dst)
+                logger.info(module + ' ' + mylar.FILE_OPTS + ' successful to : ' + dst)
 
-                #tidyup old path
-                try:
-                    if os.path.isdir(odir) and odir != self.nzb_folder:
-                        logger.fdebug(module + 'self.nzb_folder: ' + self.nzb_folder)
-                        # check to see if the directory is empty or not.
-                        if not os.listdir(odir):
-                            logger.fdebug(module + ' Tidying up. Deleting folder : ' + odir)
-                            shutil.rmtree(odir)
-                        else:
-                            raise OSError(module + ' ' + odir + ' not empty. Skipping removal of directory - this will either be caught in further post-processing or it will have to be removed manually.')
-                    else:
-                        raise OSError(module + ' ' + odir + ' unable to remove at this time.')
-                except (OSError, IOError):
-                    logger.fdebug(module + ' Failed to remove temporary directory (' + odir + ') - Processing will continue, but manual removal is necessary')
+                if any([mylar.FILE_OPTS == 'move', mylar.FILE_OPTS == 'copy']):
+                    self.tidyup(odir, False, subpath)
 
             #Hopefully set permissions on downloaded file
-            if mylar.OS_DETECT != 'windows':
-                filechecker.setperms(dst.rstrip())
+            if mylar.ENFORCE_PERMS:
+                if mylar.OS_DETECT != 'windows':
+                    filechecker.setperms(dst.rstrip())
+                else:
+                    try:
+                        permission = int(mylar.CHMOD_FILE, 8)
+                        os.umask(0)
+                        os.chmod(dst.rstrip(), permission)
+                    except OSError:
+                        logger.error(module + ' Failed to change file permissions. Ensure that the user running Mylar has proper permissions to change permissions in : ' + dst)
+                        logger.fdebug(module + ' Continuing post-processing but unable to change file permissions in ' + dst)
+
+            #let's reset the fileop to the original setting just in case it's a manual pp run
+            if mylar.FILE_OPTS == 'copy':
+                self.fileop = shutil.copy
             else:
-                try:
-                    permission = int(mylar.CHMOD_FILE, 8)
-                    os.umask(0)
-                    os.chmod(dst.rstrip(), permission)
-                except OSError:
-                    logger.error(module + ' Failed to change file permissions. Ensure that the user running Mylar has proper permissions to change permissions in : ' + dst)
-                    logger.fdebug(module + ' Continuing post-processing but unable to change file permissions in ' + dst)
+                self.fileop = shutil.move
 
             #delete entry from nzblog table
             myDB.action('DELETE from nzblog WHERE issueid=?', [issueid])
@@ -1389,26 +1828,27 @@ class PostProcessor(object):
             try:
                 if ml['IssueArcID']:
                     logger.info('Watchlist Story Arc match detected.')
+                    logger.info(ml)
                     arcinfo = myDB.selectone('SELECT * FROM readinglist where IssueArcID=?', [ml['IssueArcID']]).fetchone()
                     if arcinfo is None:
                         logger.warn('Unable to locate IssueID within givin Story Arc. Ensure everything is up-to-date (refreshed) for the Arc.')
                     else:
-                        arcdir = helpers.filesafe(arcinfo['StoryArc'])
-                        if mylar.REPLACE_SPACES:
-                           arcdir = arcdir.replace(' ', mylar.REPLACE_CHAR)
 
-                        if mylar.STORYARCDIR:
-                            storyarcd = os.path.join(mylar.DESTINATION_DIR, "StoryArcs", arcdir)
-                            logger.fdebug(module + ' Story Arc Directory set to : ' + storyarcd)
-                            grdst = storyarcd
+                        if arcinfo['Publisher'] is None:
+                            arcpub = arcinfo['IssuePublisher']
                         else:
-                            logger.fdebug(module + ' Story Arc Directory set to : ' + mylar.GRABBAG_DIR)
-                            storyarcd = os.path.join(mylar.DESTINATION_DIR, mylar.GRABBAG_DIR)
-                            grdst = mylar.DESTINATION_DIR
+                            arcpub = arcinfo['Publisher']
 
-                        filechecker.validateAndCreateDirectory(grdst, True, module=module)
+                        grdst = helpers.arcformat(arcinfo['StoryArc'], helpers.spantheyears(arcinfo['StoryArcID']), arcpub)
+                        logger.info('grdst:' + grdst)
+                        checkdirectory = filechecker.validateAndCreateDirectory(grdst, True, module=module)
+                        if not checkdirectory:
+                            logger.warn(module + ' Error trying to validate/create directory. Aborting this process at this time.')
+                            self.valreturn.append({"self.log": self.log,
+                                                   "mode": 'stop'})
+                            return self.queue.put(self.valreturn)
+
                         if mylar.READ2FILENAME:
-
                             logger.fdebug(module + ' readingorder#: ' + str(arcinfo['ReadingOrder']))
                             if int(arcinfo['ReadingOrder']) < 10: readord = "00" + str(arcinfo['ReadingOrder'])
                             elif int(arcinfo['ReadingOrder']) >= 10 and int(arcinfo['ReadingOrder']) <= 99: readord = "0" + str(arcinfo['ReadingOrder'])
@@ -1422,12 +1862,16 @@ class PostProcessor(object):
                         logger.fdebug(module + ' Destination Path : ' + grab_dst)
                         grab_src = dst
                         logger.fdebug(module + ' Source Path : ' + grab_src)                        
-                        logger.info(module + ' Copying ' + str(dst) + ' into directory : ' + str(grab_dst))
+                        logger.info(module + '[' + mylar.ARC_FILEOPS.upper() + '] ' + str(dst) + ' into directory : ' + str(grab_dst))
 
                         try:
-                            shutil.copy(grab_src, grab_dst)
+                            #need to ensure that src is pointing to the series in order to do a soft/hard-link properly
+                            fileoperation = helpers.file_ops(grab_src, grab_dst, arc=True)
+                            if not fileoperation:
+                                raise OSError
+                            #shutil.copy(grab_src, grab_dst)
                         except (OSError, IOError):
-                            logger.warn(module + ' Failed to move directory - check directories and manually re-run.')
+                            logger.fdebug(module + '[' + mylar.ARC_FILEOPS.upper() + '] Failure ' + src + ' - check directories and manually re-run.')
                             return
 
                         #delete entry from nzblog table in case it was forced via the Story Arc Page
@@ -1448,13 +1892,13 @@ class PostProcessor(object):
             if mylar.WEEKFOLDER or mylar.SEND2READ:
                 #mylar.WEEKFOLDER = will *copy* the post-processed file to the weeklypull list folder for the given week.
                 #mylar.SEND2READ = will add the post-processed file to the readinglits
-                weeklypull.weekly_check(comicid, issuenum, file=str(nfilename +ext), path=dst, module=module, issueid=issueid)
+                weeklypull.weekly_check(comicid, issuenum, file=(nfilename +ext), path=dst, module=module, issueid=issueid)
 
             # retrieve/create the corresponding comic objects
             if mylar.ENABLE_EXTRA_SCRIPTS:
-                folderp = str(dst) #folder location after move/rename
+                folderp = dst #folder location after move/rename
                 nzbn = self.nzb_name #original nzb name
-                filen = str(nfilename + ext) #new filename
+                filen = nfilename + ext #new filename
                 #name, comicyear, comicid , issueid, issueyear, issue, publisher
                 #create the dic and send it.
                 seriesmeta = []
@@ -1508,7 +1952,7 @@ class PostProcessor(object):
 
             if mylar.PUSHOVER_ENABLED:
                 pushover = notifiers.PUSHOVER()
-                pushover.notify(prline, "Download and Post-Processing completed", module=module)
+                pushover.notify(prline, prline2, module=module)
 
             if mylar.BOXCAR_ENABLED:
                 boxcar = notifiers.BOXCAR()
@@ -1517,6 +1961,10 @@ class PostProcessor(object):
             if mylar.PUSHBULLET_ENABLED:
                 pushbullet = notifiers.PUSHBULLET()
                 pushbullet.notify(prline=prline, prline2=prline2, module=module)
+
+            if mylar.TELEGRAM_ENABLED:
+                telegram = notifiers.TELEGRAM()
+                telegram.notify(prline, prline2)
 
             logger.info(module + ' Post-Processing completed for: ' + series + ' ' + dispiss)
             self._log(u"Post Processing SUCCESSFUL! ")
@@ -1540,6 +1988,9 @@ class FolderCheck():
         self.queue = Queue.Queue()
 
     def run(self):
+        if mylar.IMPORTLOCK:
+            logger.info('There is an import currently running. In order to ensure successful import - deferring this until the import is finished.')
+            return
         #monitor a selected folder for 'snatched' files that haven't been processed
         #junk the queue as it's not needed for folder monitoring, but needed for post-processing to run without error.
         logger.info(self.module + ' Checking folder ' + mylar.CHECK_FOLDER + ' for newly snatched downloads')

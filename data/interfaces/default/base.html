@@ -1,7 +1,6 @@
 <%
 	import mylar
 	from mylar import version
-        from mylar.helpers import cvapi_check
 %>
 <!doctype html>
 <!--[if lt IE 7 ]> <html lang="en" class="no-js ie6"> <![endif]-->
@@ -26,7 +25,7 @@
         <link rel="shortcut icon" href="images/favicon.ico" type="image/x-icon">
 	${next.headIncludes()}
 	
-	<script src="js/libs/modernizr-1.7.min.js"></script>
+	<script src="js/libs/modernizr-2.8.3.min.js"></script>
 </head>
 <body>
         <%
@@ -41,7 +40,7 @@
             </div>
             % elif mylar.CURRENT_VERSION != mylar.LATEST_VERSION and mylar.INSTALL_TYPE != 'win' and mylar.COMMITS_BEHIND > 0:
             <div id="updatebar">
-                A <a href="http://github.com/evilhero/mylar/compare/${mylar.CURRENT_VERSION}...${mylar.LATEST_VERSION}" target="_blank"> newer version</a> is available. You're ${mylar.COMMITS_BEHIND} commits behind. <a href="update">Update</a> or <a href="#" onclick="$('#updatebar').slideUp('slow');">Close</a>
+                A <a href="https://github.com/evilhero/mylar/compare/${mylar.CURRENT_VERSION}...${mylar.LATEST_VERSION}" target="_blank"> newer version</a> is available. You're ${mylar.COMMITS_BEHIND} commits behind. <a href="update">Update</a> or <a href="#" onclick="$('#updatebar').slideUp('slow');">Close</a>
             </div>
 			% endif
 	
@@ -51,7 +50,13 @@
 				<a href="home"><img src="images/mylarlogo.png" height="64" width="64" alt="mylar"></a>
 			</div>
 			<ul id="nav">
-				<li><a href="upcoming">wanted</a></li>
+				<li>
+                                %if mylar.WANTED_TAB_OFF:
+                                    <a href="#">wanted</a>
+                                %else:
+                                    <a href="upcoming">wanted</a>
+                                %endif
+                                </li>
 				<li><a href="pullist">
                                 %if mylar.PULLNEW == 'no':
                                   <img src="interfaces/default/images/grey-circle.png" height="10" width="10" />
@@ -102,17 +107,14 @@
 				%if mylar.GIT_BRANCH != 'master':
 				(${version.MYLAR_VERSION})
 				%endif
-                                <br/>
-                                API Usage: ${cvapi_check(True)}
 			</div>			
 		</footer>
 		<a href="#main" id="toTop"><span>Back to top</span></a>
 	</div>
-        <script src="//code.jquery.com/jquery-1.9.1.js"></script>
-        <!--<script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script> -->
 
 	<script src="js/libs/jquery-1.7.2.min.js"></script>
 	<script src="js/libs/jquery-ui.min.js"></script> 
+        <script src="js/common.js"></script>
 	
 	${next.javascriptIncludes()}
 	

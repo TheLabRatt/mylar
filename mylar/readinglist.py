@@ -60,9 +60,6 @@ class Readinglist(object):
         else:
             locpath = None
             if mylar.MULTIPLE_DEST_DIRS is not None and mylar.MULTIPLE_DEST_DIRS != 'None' and os.path.join(mylar.MULTIPLE_DEST_DIRS, os.path.basename(comicinfo['ComicLocation'])) != comicinfo['ComicLocation']:
-                logger.fdebug(self.module + ' Multiple_dest_dirs:' + mylar.MULTIPLE_DEST_DIRS)
-                logger.fdebug(self.module + ' Dir: ' + comicinfo['ComicLocation'])
-                logger.fdebug(self.module + ' Os.path.basename: ' + os.path.basename(comicinfo['ComicLocation']))
                 pathdir = os.path.join(mylar.MULTIPLE_DEST_DIRS, os.path.basename(comicinfo['ComicLocation']))
                 if os.path.exists(os.path.join(pathdir, readlist['Location'])):
                     locpath = os.path.join(pathdir, readlist['Location'])
@@ -137,13 +134,13 @@ class Readinglist(object):
         sendlist = []
 
         if self.filelist is None:
-            rl = myDB.select('SELECT * FROM readlist WHERE Status="Added"')
+            rl = myDB.select('SELECT issues.IssueID, comics.ComicID, comics.ComicLocation, issues.Location FROM readlist LEFT JOIN issues ON issues.IssueID = readlist.IssueID LEFT JOIN comics on comics.ComicID = issues.ComicID WHERE readlist.Status="Added"')
             if rl is None:
                 logger.info(module + ' No issues have been marked to be synced. Aborting syncfiles')
                 return
 
             for rlist in rl:
-                readlist.append({"filepath": rlist['Location'],
+                readlist.append({"filepath": os.path.join(rlist['ComicLocation'],rlist['Location']),
                                  "issueid":  rlist['IssueID'],
                                  "comicid":  rlist['ComicID']})
 
@@ -213,7 +210,10 @@ class Readinglist(object):
             #fhost = mylar.TAB_HOST.find(':')
             host = mylar.TAB_HOST[:mylar.TAB_HOST.find(':')]
 
-            cmdstring = str('ping -c1 ' + str(host))
+            if 'windows' not in mylar.OS_DETECT.lower():
+                cmdstring = str('ping -c1 ' + str(host))
+            else:
+                cmdstring = str('ping -n 1 ' + str(host))
             cmd = shlex.split(cmdstring)
             try:
                 output = subprocess.check_output(cmd)
@@ -221,9 +221,15 @@ class Readinglist(object):
                 logger.info(module + ' The host {0} is not Reachable at this time.'.format(cmd[-1]))
                 return
             else:
-                logger.info(module + ' The host {0} is Reachable. Preparing to send files.'.format(cmd[-1]))
+                if 'unreachable' in output:
+                    logger.info(module + ' The host {0} is not Reachable at this time.'.format(cmd[-1]))
+                    return
+                else:
+                    logger.info(module + ' The host {0} is Reachable. Preparing to send files.'.format(cmd[-1]))
 
             success = mylar.ftpsshup.sendfiles(sendlist)
+            if success == 'fail':
+                return
 
             if len(success) > 0:
                 for succ in success:

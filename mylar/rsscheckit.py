@@ -56,10 +56,10 @@ class tehMain():
             #function for looping through nzbs/torrent feeds
             if mylar.ENABLE_TORRENT_SEARCH:
                 logger.info('[RSS] Initiating Torrent RSS Check.')
-                if mylar.ENABLE_KAT:
-                    logger.info('[RSS] Initiating Torrent RSS Feed Check on KAT.')
-                    rsscheck.torrents(pickfeed='3')
-                    rsscheck.torrents(pickfeed='6')
+                if mylar.ENABLE_TPSE:
+                    logger.info('[RSS] Initiating Torrent RSS Feed Check on TorrentProject.')
+                    #rsscheck.torrents(pickfeed='3')   #TP.SE RSS Check (has to be page-parsed)
+                    rsscheck.torrents(pickfeed='TPSE')    #TPSE = DEM RSS Check + WWT RSS Check
                 if mylar.ENABLE_32P:
                     logger.info('[RSS] Initiating Torrent RSS Feed Check on 32P.')
                     if mylar.MODE_32P == 0:
@@ -76,10 +76,13 @@ class tehMain():
                             if mylar.KEYS_32P is None:
                                 feed32p = auth32p.info32p()
                                 feedinfo = feed32p.authenticate()
+                                if feedinfo == "disable":
+                                    mylar.ENABLE_32P = 0
+                                    mylar.config_write()
                             else:
                                 feedinfo = mylar.FEEDINFO_32P
 
-                            if feedinfo is None or len(feedinfo) == 0:
+                            if feedinfo is None or len(feedinfo) == 0 or feedinfo == "disable":
                                 logger.error('[RSS] Unable to retrieve any information from 32P for RSS Feeds. Skipping for now.')
                             else:
                                 rsscheck.torrents(pickfeed='1', feedinfo=feedinfo[0])

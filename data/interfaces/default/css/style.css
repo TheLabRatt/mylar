@@ -182,6 +182,11 @@ img.editArt {
   max-height: 300px;
   position: relative;
 }
+.className {
+ width: 500px;
+ height: 400px;
+ overflow: scroll;
+}
 .title {
   margin-bottom: 20px;
   margin-top: 10px;
@@ -262,9 +267,6 @@ textarea:invalid {
 .no-boxshadow textarea:invalid {
   background-color: #f0dddd;
 }
-input[type="checkbox"] {
-  vertical-align: bottom;
-}
 label,
 input[type="button"],
 input[type="submit"],
@@ -286,8 +288,7 @@ input,
 select,
 form .checkbox input,
 .configtable td#middle,
-#series_table td#have,
-#album_table td#have {
+#series_table td#have {
   vertical-align: middle;
 }
 input[type="radio"] {
@@ -334,6 +335,9 @@ form fieldset small.heading {
   font-style: italic;
   margin-bottom: 10px;
   margin-top: -15px;
+}
+form .fieldset-auto-width {
+  display: inline-block;
 }
 form .row {
   font-family: Helvetica, Arial;
@@ -775,7 +779,7 @@ div#searchbar .mini-icon {
   margin-top: 6px;
 }
 .checkbox.inline {
-  padding: 0 5px;
+  padding: 5px;
 }
 .checkbox.inline > input {
   margin-right: 5px;
@@ -862,7 +866,7 @@ div#searchbar .mini-icon {
 }
 #paddingheader h1 {
   line-height: 33px;
-  width: 450px;
+/* width: 450px; */
 }
 #paddingheader h1 img {
   float: left;
@@ -928,7 +932,7 @@ div#artistheader h2 a {
   max-width: 25px;
   text-align: center;
 }
-#read_detail th#issueyear,
+#read_detail th#issuedate,
 #read_detail th#status,
 #read_detail th#statuschange {
   max-width: 50px;
@@ -950,7 +954,7 @@ div#artistheader h2 a {
   text-align: left;
   vertical-align: middle;
 }
-#read_detail td#issueyear,
+#read_detail td#issuedate,
 #read_detail td#status,
 #read_detail td#statuschange {
   max-width: 50px;
@@ -976,11 +980,11 @@ div#artistheader h2 a {
   text-align: left;
 }
 #storyarcs th#years {
-  max-width: 40px;
+  max-width: 50px;
   text-align: center;
 }
 #storyarcs th#have {
-  max-width: 42px;
+  max-width: 80px;
   text-align: center;
 }
 #storyarcs td#storyarc {
@@ -990,8 +994,8 @@ div#artistheader h2 a {
   font-size: 12px;
 }
 #storyarcs td#years {
-  max-width: 40px;
-  text-align: left;
+  max-width: 50px;
+  text-align: center;
   vertical-align: middle;
 }
 #storyarcs td#options {
@@ -1000,7 +1004,7 @@ div#artistheader h2 a {
   vertical-align: middle;
 }
 #storyarcs td#have {
-  max-width: 42px;
+  max-width: 80px;
   text-align: center;
   vertical-align: middle;
 }
@@ -1100,6 +1104,10 @@ div#artistheader h2 a {
   min-width: 50px;
   text-align: left;
 }
+#manage_comic th#stat_icon{
+  max-width: 15px;
+  text-align: center;
+}
 #manage_comic th#have,
 #manage_comic th#publisher {
   text-align: center;
@@ -1115,6 +1123,11 @@ div#artistheader h2 a {
 #manage_comic td#publisher {
   min-width: 50px;
   text-align: left;
+  vertical-align: middle;
+}
+#manage_comic td#stat_icon{
+  max-width: 15px;
+  text-align: center;
   vertical-align: middle;
 }
 #manage_comic td#latest {
@@ -1173,6 +1186,48 @@ div#artistheader h2 a {
   text-align: left;
   vertical-align: middle;
 }
+#manage_failed th#series {
+  min-width: 175px;
+  text-align: left;
+}
+#manage_failed th#select {
+  min-width: 10px;
+  text-align: left;
+  vertical-align: middle;
+}
+#manage_failed th#issue,
+#manage_failed th#site,
+#manage_failed th#datefailed {
+  min-width: 50px;
+  text-align: left;
+}
+#manage_failed th#link {
+  min-width: 100px;
+  text-align: left;
+}
+#manage_failed td#series {
+  min-width: 175px;
+  text-align: left;
+  vertical-align: middle;
+  font-size: 12px;
+}
+#manage_failed td#select {
+  min-width: 10px;
+  text-align: left;
+  vertical-align: middle;
+}
+#manage_failed td#issue,
+#manage_failed td#site,
+#manage_failed td#datefailed {
+  min-width: 50px;
+  text-align: left;
+  vertical-align: middle;
+}
+#manage_failed td#link {
+  min-width: 100px;
+  text-align: left;
+  vertical-align: middle;
+}
 #series_table {
   background-color: #FFF;
   padding: 20px;
@@ -1189,6 +1244,12 @@ div#artistheader h2 a {
 #series_table th#year {
   max-width: 25px;
   text-align: left;
+}
+#series_table th#have_percent,
+#series_table th#active_status {
+  max-width: 25px;
+  text-align: left;
+  display: none;
 }
 #series_table th#active {
   max-width: 40px;
@@ -1214,10 +1275,17 @@ div#artistheader h2 a {
   text-align: left;
   vertical-align: middle;
 }
-#series_table td#year {
+#series_table td#year,
   max-width: 25px;
   text-align: left;
   vertical-align: middle;
+}
+#series_table td#have_percent,
+#series_table td#active_status {
+  max-width: 25px;
+  text-align: left;
+  vertical-align: middle;
+  display: none;
 }
 #series_table td#active {
   max-width: 40px;
@@ -1262,20 +1330,16 @@ div#artistheader h2 a {
   background-color: #FFF;
 }
 #log_table th#timestamp {
-  min-width: 150px;
+  min-width: 125px;
   text-align: left;
 }
 #log_table th#level {
-  min-width: 60px;
+  max-width: 60px;
   text-align: left;
 }
 #log_table th#message {
-  min-width: 500px;
+  min-width: 600px;
   text-align: left;
-}
-#log_table td {
-  font-size: 12px;
-  padding: 2px 10px;
 }
 #searchresults_table th#name {
   min-width: 525px;
@@ -1360,6 +1424,10 @@ div#artistheader h2 a {
   min-width: 75px;
   text-align: center;
 }
+#impresults_table th#issues {
+  min-width: 25px;
+  text-align: center;
+}
 #impresults_table th#status {
   min-width: 110px;
   text-align: center;
@@ -1391,6 +1459,11 @@ div#artistheader h2 a {
   text-align: left;
   vertical-align: middle;
 }
+#impresults_table td#issues {
+  min-width: 25px;
+  text-align: left;
+  vertical-align: middle;
+}
 #impresults_table td#status {
   min-width: 110px;
   text-align: left;
@@ -1406,7 +1479,6 @@ div#artistheader h2 a {
   vertical-align: middle;
   text-align: left;
 }
-
 #searchmanage_table th#comicname {
   min-width: 325px;
   text-align: left;
@@ -1831,6 +1903,6 @@ img.btn_close {
 fieldset {
     border: none;
 }
-img.highqual { 
+img.highqual {
     -ms-interpolation-mode: bicubuic;
 }

@@ -24,9 +24,9 @@ from urllib import urlencode
 import os.path
 import subprocess
 import time
-import lib.simplejson as simplejson
+import simplejson
 import json
-import lib.requests as requests
+import requests
 
 # This was obviously all taken from headphones with great appreciation :)
 
@@ -77,10 +77,6 @@ class PROWL:
                 logger.info(module + ' Prowl notification failed.')
                 return False
 
-    def updateLibrary(self):
-        #For uniformity reasons not removed
-        return
-
     def test_notify(self):
         self.notify('ZOMG Lazors Pewpewpew!', 'Test Message')
 
@@ -95,10 +91,13 @@ class NMA:
         self._session = requests.Session()
 
     def _send(self, data, module):
+        try:
+            r = self._session.post(self.NMA_URL, data=data, verify=True)
+        except requests.exceptions.RequestException as e:                
+            logger.error(module + '[' + str(e) + '] Unable to send via NMA. Aborting notification for this item.')
+            return False
 
-        r = self._session.post(self.NMA_URL, data=data)
-
-        logger.info('[NMA] Status code returned: ' + str(r.status_code))
+        logger.fdebug('[NMA] Status code returned: ' + str(r.status_code))
         if r.status_code == 200:
             logger.info(module + ' NotifyMyAndroid notifications sent.')
             return True
@@ -146,6 +145,7 @@ class NMA:
 class PUSHOVER:
 
     def __init__(self):
+        self.PUSHOVER_URL = 'https://api.pushover.net/1/messages.json'
         self.enabled = mylar.PUSHOVER_ENABLED
         if mylar.PUSHOVER_APIKEY is None or mylar.PUSHOVER_APIKEY == 'None':
             self.apikey = 'a1KZ1L7d8JKdrtHcUR6eFoW2XGBmwG'
@@ -153,25 +153,21 @@ class PUSHOVER:
             self.apikey = mylar.PUSHOVER_APIKEY
         self.userkey = mylar.PUSHOVER_USERKEY
         self.priority = mylar.PUSHOVER_PRIORITY
-        # other API options:
-        # self.device_id = mylar.PUSHOVER_DEVICE_ID
-        # device - option for specifying which of your registered devices Mylar should send to. No option given, it sends to all devices on Pushover (default)
-        # URL / URL_TITLE (both for use with the COPS/OPDS server I'm building maybe?)
-        # Sound - name of soundfile to override default sound choice
 
-    # not sure if this is needed for Pushover
+        self._session = requests.Session()
+        self._session.headers = {'Content-type': "application/x-www-form-urlencoded"}
 
-    #def conf(self, options):
-    # return cherrypy.config['config'].get('Pushover', options)
-
-    def notify(self, message, event, module=None):
+    def notify(self, event, message=None, snatched_nzb=None, prov=None, sent_to=None, module=None):
         if not mylar.PUSHOVER_ENABLED:
             return
         if module is None:
             module = ''
         module += '[NOTIFIER]'
 
-        http_handler = HTTPSConnection("api.pushover.net:443")
+        if snatched_nzb:
+            if snatched_nzb[-1] == '\.': 
+                snatched_nzb = snatched_nzb[:-1]
+            message = "Mylar has snatched: " + snatched_nzb + " from " + prov + " and has sent it to " + sent_to
 
         data = {'token': mylar.PUSHOVER_APIKEY,
                 'user': mylar.PUSHOVER_USERKEY,
@@ -179,32 +175,20 @@ class PUSHOVER:
                 'title': event,
                 'priority': mylar.PUSHOVER_PRIORITY}
 
-        http_handler.request("POST",
-                                "/1/messages.json",
-                                body = urlencode(data),
-                                headers = {'Content-type': "application/x-www-form-urlencoded"}
-                                )
-        response = http_handler.getresponse()
-        request_status = response.status
+        r = self._session.post(self.PUSHOVER_URL, data=data, verify=True)
 
-        logger.fdebug(u"PushOver response status: %r" % request_status)
-        logger.fdebug(u"PushOver response headers: %r" % response.getheaders())
-        logger.fdebug(u"PushOver response body: %r" % response.read())
-
-
-        if request_status == 200:
-                logger.info(module + ' Pushover notifications sent.')
-                return True
-        elif request_status == 401:
-                logger.info(module + 'Pushover auth failed: %s' % response.reason)
-                return False
+        if r.status_code == 200:
+            logger.info(module + ' PushOver notifications sent.')
+            return True
+        elif r.status_code >= 400 and r.status_code < 500:
+            logger.error(module + ' PushOver request failed: %s' % r.content)
+            return False
         else:
-                logger.info(module + ' Pushover notification failed.')
-                return False
+            logger.error(module + ' PushOver notification failed serverside.')
+            return False
 
     def test_notify(self):
-        self.notify('ZOMG Lazors Pewpewpew!', 'Test Message')
-
+        return self.notify(message='Release the Ninjas!',event='Test Message')
 
 class BOXCAR:
 
@@ -350,3 +334,33 @@ class PUSHBULLET:
     def test_notify(self):
         return self.notify(prline='Test Message', prline2='Release the Ninjas!')
 
+class TELEGRAM:
+    def __init__(self):
+        self.token = mylar.TELEGRAM_TOKEN
+        self.userid = mylar.TELEGRAM_USERID
+        self.TELEGRAM_API = "https://api.telegram.org/bot%s/%s"
+
+    def notify(self, message, status):
+        if not mylar.TELEGRAM_ENABLED:
+            return
+
+        # Construct message
+        payload = {'chat_id': self.userid, 'text': status + ': ' + message}
+
+        # Send message to user using Telegram's Bot API
+        try:
+            response = requests.post(self.TELEGRAM_API % (self.token, "sendMessage"), data=payload)
+        except Exception, e:
+            logger.info(u'Telegram notify failed: ' + str(e))
+
+        # Error logging
+        sent_successfuly = True
+        if not response.status_code == 200:
+            logger.info(u'Could not send notification to TelegramBot (token=%s). Response: [%s]', (self.token, response.text))
+            sent_successfuly = False
+
+        logger.info(u"Telegram notifications sent.")
+        return sent_successfuly
+
+    def test_notify(self):
+        return self.notify('Test Message', 'Release the Ninjas!')

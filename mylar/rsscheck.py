@@ -2,16 +2,20 @@
 
 import os, sys
 import re
-import lib.feedparser as feedparser
-import lib.requests as requests
+import feedparser
+import requests
+import cfscrape
+import urlparse
 import ftpsshup
 import datetime
 import gzip
+import time
 from StringIO import StringIO
 
 import mylar
-from mylar import db, logger, ftpsshup, helpers, auth32p
-
+from mylar import db, logger, ftpsshup, helpers, auth32p, utorrent
+import torrent.clients.transmission as transmission
+import torrent.clients.deluge as deluge
 
 def _start_newznab_attr(self, attrsD):
     context = self._getContext()
@@ -40,17 +44,24 @@ def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
     if issue:
         srchterm += '%20' + str(issue)
 
-    if mylar.KAT_PROXY:
-        if mylar.KAT_PROXY.endswith('/'):
-            kat_url = mylar.KAT_PROXY
+    if mylar.TPSE_PROXY:
+        if mylar.TPSE_PROXY.endswith('/'):
+            tpse_url = mylar.TPSE_PROXY
         else:
-            kat_url = mylar.KAT_PROXY + '/'
+            tpse_url = mylar.TPSE_PROXY + '/'
     else:
         #switched to https.
-        kat_url = 'https://kat.cr/'
+        tpse_url = 'https://torrentproject.se/'
 
-    if pickfeed == 'KAT':
-        #we need to cycle through both categories (comics & other) - so we loop.
+    #this is for the public trackers included thus far in order to properly cycle throught the correct ones depending on the search request
+    # TPSE = search only
+    # DEM = rss feed
+    # WWT = rss feed
+    if pickfeed == 'TPSE-SEARCH':
+        pickfeed = '2'
+        loopit = 1
+    elif pickfeed == 'TPSE':
+        #we need to cycle through both DEM + WWT feeds
         loopit = 2
     else:
         loopit = 1
@@ -65,26 +76,29 @@ def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
 
     feeddata = []
     myDB = db.DBConnection()
-    torthekat = []
+    torthetpse = []
     torthe32p = []
     torinfo = {}
 
     while (lp < loopit):
         if lp == 0 and loopit == 2:
-            pickfeed = '2'
+            pickfeed = '6'  #DEM RSS
         elif lp == 1 and loopit == 2:
-            pickfeed = '5'
-
+            pickfeed = '999'  #WWT RSS
+           
         feedtype = None
 
         if pickfeed == "1" and mylar.ENABLE_32P:  # 32pages new releases feed.
             feed = 'https://32pag.es/feeds.php?feed=torrents_all&user=' + feedinfo['user'] + '&auth=' + feedinfo['auth'] + '&passkey=' + feedinfo['passkey'] + '&authkey=' + feedinfo['authkey']
             feedtype = ' from the New Releases RSS Feed for comics'
-        elif pickfeed == "2" and srchterm is not None:    # kat.ph search
-            feed = kat_url + "usearch/" + str(srchterm) + "%20category%3Acomics%20seeds%3A" + str(mylar.MINSEEDS) + "/?rss=1"
-        elif pickfeed == "3":    # kat.ph rss feed
-            feed = kat_url + "usearch/category%3Acomics%20seeds%3A" + str(mylar.MINSEEDS) + "/?rss=1"
-            feedtype = ' from the New Releases RSS Feed for comics'
+            verify = bool(mylar.VERIFY_32P)
+        elif pickfeed == "2" and srchterm is not None:    # TP.SE search / RSS
+            feed = tpse_url + 'rss/' + str(srchterm) + '/'
+            verify = bool(mylar.TPSE_VERIFY)
+        elif pickfeed == "3":    # TP.SE rss feed (3101 = comics category) / non-RSS
+            feed = tpse_url + '?hl=en&safe=off&num=50&start=0&orderby=best&s=&filter=3101'
+            feedtype = ' from the New Releases RSS Feed for comics from TP.SE'
+            verify = bool(mylar.TPSE_VERIFY)
         elif pickfeed == "4":    #32p search
             if any([mylar.USERNAME_32P is None, mylar.USERNAME_32P == '', mylar.PASSWORD_32P is None, mylar.PASSWORD_32P == '']):
                 logger.error('[RSS] Warning - you NEED to enter in your 32P Username and Password to use this option.')
@@ -95,30 +109,60 @@ def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
                 lp=+1
                 continue
             return
-        elif pickfeed == "5" and srchterm is not None:  # kat.ph search (category:other since some 0-day comics initially get thrown there until categorized)
-            feed = kat_url + "usearch/" + str(srchterm) + "%20category%3Aother%20seeds%3A1/?rss=1"
-        elif pickfeed == "6":    # kat.ph rss feed (category:other so that we can get them quicker if need-be)
-            feed = kat_url + "usearch/.cbr%20category%3Aother%20seeds%3A" + str(mylar.MINSEEDS) + "/?rss=1"
-            feedtype = ' from the New Releases for category Other RSS Feed that contain comics'
+        elif pickfeed == "5" and srchterm is not None:  # demonoid search / non-RSS
+            feed = 'https://www.dnoid.me/' + "files/?category=10&subcategory=All&language=0&seeded=2&external=2&query=" + str(srchterm) + "&uid=0&out=rss"
+            verify = bool(mylar.TPSE_VERIFY)
+        elif pickfeed == "6":    # demonoid rss feed 
+            feed = 'https://www.dnoid.me/rss/10.xml'
+            feedtype = ' from the New Releases RSS Feed from Demonoid'
+            verify = bool(mylar.TPSE_VERIFY)
+        elif pickfeed == "999":    #WWT rss feed
+            feed = 'https://www.worldwidetorrents.eu/rss.php?cat=50'
+            feedtype = ' from the New Releases RSS Feed from WorldWideTorrents'
         elif int(pickfeed) >= 7 and feedinfo is not None:
             #personal 32P notification feeds.
             #get the info here
             feed = 'https://32pag.es/feeds.php?feed=' + feedinfo['feed'] + '&user=' + feedinfo['user'] + '&auth=' + feedinfo['auth'] + '&passkey=' + feedinfo['passkey'] + '&authkey=' + feedinfo['authkey'] + '&name=' + feedinfo['feedname']
             feedtype = ' from your Personal Notification Feed : ' + feedinfo['feedname']
-
+            verify = bool(mylar.VERIFY_32P)
         else:
             logger.error('invalid pickfeed denoted...')
             return
 
-        #logger.info('[' + str(pickfeed) + '] feed URL: ' + str(feed))
-
-        if pickfeed != '4':
-            feedme = feedparser.parse(feed)
-
-        if pickfeed == "3" or pickfeed == "6" or pickfeed == "2" or pickfeed == "5":
-            picksite = 'KAT'
-        elif pickfeed == "1" or pickfeed == "4" or int(pickfeed) > 7:
+        if pickfeed == '2' or pickfeed == '3':
+            picksite = 'TPSE'
+            #if pickfeed == '2':
+            #    feedme = tpse.            
+        elif pickfeed == '5' or pickfeed == '6':
+            picksite = 'DEM'
+            #if pickfeed == '5':
+            #    feedme = dem.
+        elif pickfeed == '999':
+            picksite = 'WWT'
+        elif pickfeed == '1' or pickfeed == '4' or int(pickfeed) > 7:
             picksite = '32P'
+
+        if all([pickfeed != '4', pickfeed != '3', pickfeed != '5', pickfeed != '999']):
+            payload = None
+            
+            try:
+                cf_cookievalue = None
+                scraper = cfscrape.create_scraper()
+                if pickfeed == '2':
+                    cf_cookievalue, cf_user_agent = scraper.get_tokens(feed)
+                    headers = {'Accept-encoding': 'gzip',
+                               'User-Agent':       cf_user_agent}
+
+                if cf_cookievalue:
+                    r = scraper.get(feed, verify=verify, cookies=cf_cookievalue, headers=headers)
+                else:
+                    r = scraper.get(feed, verify=verify)#requests.get(feed, params=payload, verify=verify)
+            except Exception, e:
+                logger.warn('Error fetching RSS Feed Data from %s: %s' % (picksite, e))
+                return
+
+            feedme = feedparser.parse(r.content)
+            #logger.info(feedme)   #<-- uncomment this to see what Mylar is retrieving from the feed
 
         i = 0
 
@@ -140,80 +184,94 @@ def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
                                     'files':    entry['num_files']
                                     })
                 i += 1
+        elif pickfeed == '3':
+            #TP.SE RSS FEED (parse)
+            pass
+        elif pickfeed == '5':
+            #DEMONOID SEARCH RESULT (parse)
+            pass
+        elif pickfeed == "999":
+            logger.info('FEED: ' + feed)
+            try:
+                feedme = feedparser.parse(feed)
+            except Exception, e:
+                logger.warn('Error fetching RSS Feed Data from %s: %s' % (picksite, e))
+                return
+
+            #WWT / FEED
+            for entry in feedme.entries:
+                tmpsz = entry.description
+                tmpsz_st = tmpsz.find('Size:') + 6
+                if 'GB' in tmpsz[tmpsz_st:]:
+                    szform = 'GB'
+                    sz = 'G'
+                elif 'MB' in tmpsz[tmpsz_st:]:
+                    szform = 'MB'
+                    sz = 'M'
+                linkwwt = urlparse.parse_qs(urlparse.urlparse(entry.link).query)['id']
+                feeddata.append({
+                                'site':     picksite,
+                                'title':    entry.title,
+                                'link':     ''.join(linkwwt),
+                                'pubdate':  entry.updated,
+                                'size':     helpers.human2bytes(str(tmpsz[tmpsz_st:tmpsz.find(szform, tmpsz_st) -1]) + str(sz))   #+ 2 is for the length of the MB/GB in the size.
+                                })
+                i+=1
         else:
             for entry in feedme['entries']:
-                if pickfeed == "3" or pickfeed == "6":
-                    tmpsz = feedme.entries[i].enclosures[0]
-                    torthekat.append({
+                #TP.SE RSS SEARCH RESULT
+                if pickfeed == "2":
+                    tmpenc = feedme.entries[i].enclosures[0]
+                    torthetpse.append({
                                     'site':     picksite,
                                     'title':    feedme.entries[i].title,
-                                    'link':     tmpsz['url'],
+                                    'link':     re.sub('.torrent', '', str(urlparse.urlparse(tmpenc['url'])[2].rpartition('/')[2])).strip(),
                                     'pubdate':  feedme.entries[i].updated,
-                                    'size':     tmpsz['length']
+                                    'size':     tmpenc['length']
+                                    })
+                #DEMONOID / FEED
+                elif pickfeed == "6":
+                    tmpsz = feedme.entries[i].description
+                    tmpsz_st = tmpsz.find('Size:') + 6
+                    if 'GB' in tmpsz[tmpsz_st:]:
+                        szform = 'GB'
+                        sz = 'G'
+                    elif 'MB' in tmpsz[tmpsz_st:]:
+                        szform = 'MB'
+                        sz = 'M'
+                    feeddata.append({
+                                    'site':     picksite,
+                                    'title':    feedme.entries[i].title,
+                                    'link':     str(urlparse.urlparse(feedme.entries[i].link)[2].rpartition('/')[0].rsplit('/',2)[1]),
+                                    'pubdate':  feedme.entries[i].updated,
+                                    'size':     helpers.human2bytes(str(tmpsz[tmpsz_st:tmpsz.find(szform, tmpsz_st) -1]) + str(sz)),
                                     })
 
-                elif pickfeed == "2" or pickfeed == "5":
-                    tmpsz = feedme.entries[i].enclosures[0]
-                    torthekat.append({
-                                   'site':     picksite,
-                                   'title':    feedme.entries[i].title,
-                                   'link':     tmpsz['url'],
-                                   'pubdate':  feedme.entries[i].updated,
-                                   'size':     tmpsz['length']
-                                   })
-
+                #32p / FEEDS
                 elif pickfeed == "1" or int(pickfeed) > 7:
-                    if pickfeed == "1" or int(pickfeed) > 7:
-                        tmpdesc = feedme.entries[i].description
-                        st_pub = feedme.entries[i].title.find('(')
-                        st_end = feedme.entries[i].title.find(')')
-                        pub = feedme.entries[i].title[st_pub +1:st_end] # +1 to not include (
-                        #logger.fdebug('publisher: ' + re.sub("'",'', pub).strip())  #publisher sometimes is given within quotes for some reason, strip 'em.
-                        vol_find = feedme.entries[i].title.find('vol.')
-                        series = feedme.entries[i].title[st_end +1:vol_find].strip()
-                        #logger.fdebug('series title: ' + series)
-                        iss_st = feedme.entries[i].title.find(' - ', vol_find)
-                        vol = re.sub('\.', '', feedme.entries[i].title[vol_find:iss_st]).strip()
-                        #logger.fdebug('volume #: ' + str(vol))
-                        issue = feedme.entries[i].title[iss_st +3:].strip()
-                        #logger.fdebug('issue # : ' + str(issue))
+                    tmpdesc = feedme.entries[i].description
+                    st_pub = feedme.entries[i].title.find('(')
+                    st_end = feedme.entries[i].title.find(')')
+                    pub = feedme.entries[i].title[st_pub +1:st_end] # +1 to not include (
+                    #logger.fdebug('publisher: ' + re.sub("'",'', pub).strip())  #publisher sometimes is given within quotes for some reason, strip 'em.
+                    vol_find = feedme.entries[i].title.find('vol.')
+                    series = feedme.entries[i].title[st_end +1:vol_find].strip()
+                    series = re.sub('&amp;', '&', series).strip()
+                    #logger.fdebug('series title: ' + series)
+                    iss_st = feedme.entries[i].title.find(' - ', vol_find)
+                    vol = re.sub('\.', '', feedme.entries[i].title[vol_find:iss_st]).strip()
+                    #logger.fdebug('volume #: ' + str(vol))
+                    issue = feedme.entries[i].title[iss_st +3:].strip()
+                    #logger.fdebug('issue # : ' + str(issue))
 
-                        #break it down to get the Size since it's available on THIS 32P feed only so far.
-                        #when it becomes available in the new feeds, this will be working, for now it just nulls out.
-                        sizestart = tmpdesc.find('Size:')
-                        justdigits = 0
-                        if sizestart >= 0:
-                            sizeend = tmpdesc.find('Leechers:')
-                            sizestart +=5  # to get to the end of the word 'Size:'
-                            tmpsize = tmpdesc[sizestart:sizeend].strip()
-                            fdigits = re.sub("[^0123456789\.]", "", tmpsize).strip()
-                            if '.' in fdigits:
-                                decfind = fdigits.find('.')
-                                wholenum = fdigits[:decfind]
-                                decnum = fdigits[decfind +1:]
-                            else:
-                                wholenum = fdigits
-                            decnum = 0
-                            if 'MB' in tmpsize:
-                                wholebytes = int(wholenum) * 1048576
-                                wholedecimal = (int(decnum) * 1048576) / 100
-                                justdigits = wholebytes + wholedecimal
-                            else:
-                                #it's 'GB' then
-                                wholebytes = (int(wholenum) * 1024) * 1048576
-                                wholedecimal = ((int(decnum) * 1024) * 1048576) / 100
-                                justdigits = wholebytes + wholedecimal
-                        #this is not currently working for 32p
-                        #Get the # of seeders.
-                        #seedstart = tmpdesc.find('Seeders:')
-                        #seedend = tmpdesc.find('Added:')
-                        #seedstart +=8  # to get to the end of the word 'Seeders:'
-                        #tmpseed = tmpdesc[seedstart:seedend].strip()
-                        #seeddigits = re.sub("[^0123456789\.]", "", tmpseed).strip()
-                        seeddigits = 0
+                    justdigits = feedme.entries[i].torrent_contentlength
+                    seeddigits = 0
 
                     if int(mylar.MINSEEDS) >= int(seeddigits):
+                        #new releases has it as '&id', notification feeds have it as %ampid (possibly even &amp;id
                         link = feedme.entries[i].link
+                        link = re.sub('&amp','&', link)
+                        link = re.sub('&amp;','&', link)
                         linkst = link.find('&id')
                         linken = link.find('&', linkst +1)
                         if linken == -1:
@@ -247,7 +305,7 @@ def torrents(pickfeed=None, seriesname=None, issue=None, feedinfo=None):
         if pickfeed == '4':
             torinfo['entries'] = torthe32p
         else:
-            torinfo['entries'] = torthekat
+            torinfo['entries'] = torthetpse
         return torinfo
     return
 
@@ -256,9 +314,19 @@ def nzbs(provider=None, forcerss=False):
 
     feedthis = []
 
-    def _parse_feed(site, url):
+    def _parse_feed(site, url, verify):
         logger.fdebug('[RSS] Fetching items from ' + site)
-        feedme = feedparser.parse(url, agent=str(mylar.USER_AGENT))
+        payload = None
+        headers = {'User-Agent':      str(mylar.USER_AGENT)}
+
+        try:
+            r = requests.get(url, params=payload, verify=verify, headers=headers)
+        except Exception, e:
+            logger.warn('Error fetching RSS Feed Data from %s: %s' % (site, e))
+            return
+
+        feedme = feedparser.parse(r.content)
+
         feedthis.append({"site": site,
                          "feed": feedme})
 
@@ -266,8 +334,8 @@ def nzbs(provider=None, forcerss=False):
 
     if mylar.NEWZNAB == 1:
         for newznab_host in mylar.EXTRA_NEWZNABS:
-            logger.fdebug('[RSS] newznab name: ' + str(newznab_host[0]) + ' - enabled: ' + str(newznab_host[4]))
-            if str(newznab_host[4]) == '1':
+            logger.fdebug('[RSS] newznab name: ' + str(newznab_host[0]) + ' - enabled: ' + str(newznab_host[5]))
+            if str(newznab_host[5]) == '1':
                 newznab_hosts.append(newznab_host)
 
     providercount = len(newznab_hosts) + int(mylar.EXPERIMENTAL == 1) + int(mylar.NZBSU == 1) + int(mylar.DOGNZB == 1)
@@ -275,24 +343,24 @@ def nzbs(provider=None, forcerss=False):
 
     if mylar.EXPERIMENTAL == 1:
         max_entries = "250" if forcerss else "50"
-        _parse_feed('experimental', 'http://nzbindex.nl/rss/alt.binaries.comics.dcp/?sort=agedesc&max=' + max_entries + '&more=1')
+        _parse_feed('experimental', 'http://nzbindex.nl/rss/alt.binaries.comics.dcp/?sort=agedesc&max=' + max_entries + '&more=1', False)
 
     if mylar.NZBSU == 1:
         num_items = "&num=100" if forcerss else ""  # default is 25
-        _parse_feed('nzb.su', 'http://api.nzb.su/rss?t=7030&dl=1&i=' + (mylar.NZBSU_UID or '1') + '&r=' + mylar.NZBSU_APIKEY + num_items)
+        _parse_feed('nzb.su', 'http://api.nzb.su/rss?t=7030&dl=1&i=' + (mylar.NZBSU_UID or '1') + '&r=' + mylar.NZBSU_APIKEY + num_items, bool(mylar.NZBSU_VERIFY))
 
     if mylar.DOGNZB == 1:
         num_items = "&num=100" if forcerss else ""  # default is 25
-        _parse_feed('dognzb', 'https://dognzb.cr/rss.cfm?r=' + mylar.DOGNZB_APIKEY + '&t=7030' + num_items)
+        _parse_feed('dognzb', 'https://dognzb.cr/rss.cfm?r=' + mylar.DOGNZB_APIKEY + '&t=7030' + num_items, bool(mylar.DOGNZB_VERIFY))
 
     for newznab_host in newznab_hosts:
         site = newznab_host[0].rstrip()
-        (newznabuid, _, newznabcat) = (newznab_host[3] or '').partition('#')
+        (newznabuid, _, newznabcat) = (newznab_host[4] or '').partition('#')
         newznabuid = newznabuid or '1'
         newznabcat = newznabcat or '7030'
 
         # 11-21-2014: added &num=100 to return 100 results (or maximum) - unsure of cross-reliablity
-        _parse_feed(site, newznab_host[1].rstrip() + '/rss?t=' + str(newznabcat) + '&dl=1&i=' + str(newznabuid) + '&num=100&r=' + newznab_host[2].rstrip())
+        _parse_feed(site, newznab_host[1].rstrip() + '/rss?t=' + str(newznabcat) + '&dl=1&i=' + str(newznabuid) + '&num=100&r=' + newznab_host[3].rstrip(), bool(newznab_host[2]))
 
     feeddata = []
 
@@ -355,13 +423,8 @@ def rssdbupdate(feeddata, i, type):
 
         if type == 'torrent':
             #we just store the torrent ID's now.
-            if dataval['site'] == '32P':
-                newlink = dataval['link']
-            else:
-                #store the hash/id from KAT
-                newlink = os.path.basename(re.sub('.torrent', '', dataval['link'][:dataval['link'].find('?title')]))
 
-            newVal = {"Link":      newlink,
+            newVal = {"Link":      dataval['link'],
                       "Pubdate":   dataval['pubdate'],
                       "Site":      dataval['site'],
                       "Size":      dataval['size']}
@@ -415,10 +478,10 @@ def torrentdbsearch(seriesname, issue, comicid=None, nzbprov=None):
     tresults = []
     tsearch = '%' + tsearch
 
-    if mylar.ENABLE_32P:
+    if mylar.ENABLE_32P and nzbprov == '32P':
         tresults = myDB.select("SELECT * FROM rssdb WHERE Title like ? AND Site='32P'", [tsearch])
-    if mylar.ENABLE_KAT:
-        tresults += myDB.select("SELECT * FROM rssdb WHERE Title like ? AND Site='KAT'", [tsearch])
+    if mylar.ENABLE_TPSE and nzbprov == 'TPSE':
+        tresults += myDB.select("SELECT * FROM rssdb WHERE Title like ? AND (Site='DEM' OR Site='WWT')", [tsearch])
 
     logger.fdebug('seriesname_alt:' + str(seriesname_alt))
     if seriesname_alt is None or seriesname_alt == 'None':
@@ -454,10 +517,10 @@ def torrentdbsearch(seriesname, issue, comicid=None, nzbprov=None):
                  AS_Alternate += "%"
 
             AS_Alternate = '%' + AS_Alternate
-            if mylar.ENABLE_32P:
+            if mylar.ENABLE_32P and nzbprov == '32P':
                 tresults += myDB.select("SELECT * FROM rssdb WHERE Title like ? AND Site='32P'", [AS_Alternate])
-            if mylar.ENABLE_KAT:
-                tresults += myDB.select("SELECT * FROM rssdb WHERE Title like ? AND Site='KAT'", [AS_Alternate])
+            if mylar.ENABLE_TPSE and nzbprov == 'TPSE':
+                tresults += myDB.select("SELECT * FROM rssdb WHERE Title like ? AND (Site='DEM' OR Site='WWT')", [AS_Alternate])
 
     if tresults is None:
         logger.fdebug('torrent search returned no results for ' + seriesname)
@@ -468,48 +531,51 @@ def torrentdbsearch(seriesname, issue, comicid=None, nzbprov=None):
     torinfo = {}
 
     for tor in tresults:
-        torsplit = tor['Title'].split('/')
+        #&amp; have been brought into the title field incorretly occassionally - patched now, but to include those entries already in the 
+        #cache db that have the incorrect entry, we'll adjust.
+        torTITLE = re.sub('&amp;', '&', tor['Title']).strip()
+
+        #torsplit = torTITLE.split(' ')
         if mylar.PREFERRED_QUALITY == 1:
-            if 'cbr' in tor['Title']:
+            if 'cbr' in torTITLE:
                 logger.fdebug('Quality restriction enforced [ cbr only ]. Accepting result.')
             else:
                 logger.fdebug('Quality restriction enforced [ cbr only ]. Rejecting result.')
+                continue
         elif mylar.PREFERRED_QUALITY == 2:
-            if 'cbz' in tor['Title']:
+            if 'cbz' in torTITLE:
                 logger.fdebug('Quality restriction enforced [ cbz only ]. Accepting result.')
             else:
                 logger.fdebug('Quality restriction enforced [ cbz only ]. Rejecting result.')
-
-        logger.fdebug('tor-Title: ' + tor['Title'])
-        logger.fdebug('there are ' + str(len(torsplit)) + ' sections in this title')
+                continue
+        logger.fdebug('tor-Title: ' + torTITLE)
+        #logger.fdebug('there are ' + str(len(torsplit)) + ' sections in this title')
         i=0
         if nzbprov is not None:
-            if nzbprov != tor['Site']:
+            if nzbprov != tor['Site'] and not any([mylar.ENABLE_TPSE, tor['Site'] != 'WWT', tor['Site'] != 'DEM']):
                 logger.fdebug('this is a result from ' + str(tor['Site']) + ', not the site I am looking for of ' + str(nzbprov))
                 continue
         #0 holds the title/issue and format-type.
-        ext_check = True   # extension checker to enforce cbr/cbz filetype restrictions.
-        while (i < len(torsplit)):
-            #we'll rebuild the string here so that it's formatted accordingly to be passed back to the parser.
-            logger.fdebug('section(' + str(i) + '): ' + torsplit[i])
-            #remove extensions
-            titletemp = torsplit[i]
-            titletemp = re.sub('cbr', '', titletemp)
-            titletemp = re.sub('cbz', '', titletemp)
-            titletemp = re.sub('none', '', titletemp)
 
-            if i == 0:
-                rebuiltline = titletemp
-            else:
-                rebuiltline = rebuiltline + ' (' + titletemp + ')'
-            i+=1
+#--- this was for old cbt feeds, no longer used for 32p
+#        while (i < len(torsplit)):
+#            #we'll rebuild the string here so that it's formatted accordingly to be passed back to the parser.
+#            logger.fdebug('section(' + str(i) + '): ' + torsplit[i])
+#            #remove extensions
+#            titletemp = torsplit[i]
+#            titletemp = re.sub('cbr', '', titletemp)
+#            titletemp = re.sub('cbz', '', titletemp)
+#            titletemp = re.sub('none', '', titletemp)
 
-        if ext_check == False:
-            continue
-        logger.fdebug('rebuiltline is :' + rebuiltline)
-
+#            if i == 0:
+#                rebuiltline = titletemp
+#            else:
+#                rebuiltline = rebuiltline + ' (' + titletemp + ')'
+#            i+=1
+#        logger.fdebug('rebuiltline is :' + rebuiltline)
+#----
         seriesname_mod = seriesname
-        foundname_mod = torsplit[0]
+        foundname_mod = torTITLE #torsplit[0]
         seriesname_mod = re.sub("\\band\\b", " ", seriesname_mod.lower())
         foundname_mod = re.sub("\\band\\b", " ", foundname_mod.lower())
         seriesname_mod = re.sub("\\bthe\\b", " ", seriesname_mod.lower())
@@ -532,7 +598,7 @@ def torrentdbsearch(seriesname, issue, comicid=None, nzbprov=None):
         logger.fdebug(str(len(formatrem_seriesname)) + ' - formatrem_seriesname :' + formatrem_seriesname.lower())
 
         if formatrem_seriesname.lower() in formatrem_torsplit.lower() or any(x.lower() in formatrem_torsplit.lower() for x in AS_Alt):
-            logger.fdebug('matched to : ' + tor['Title'])
+            logger.fdebug('matched to : ' + torTITLE)
             logger.fdebug('matched on series title: ' + seriesname)
             titleend = formatrem_torsplit[len(formatrem_seriesname):]
             titleend = re.sub('\-', '', titleend)   #remove the '-' which is unnecessary
@@ -546,24 +612,24 @@ def torrentdbsearch(seriesname, issue, comicid=None, nzbprov=None):
             extra = ''
 
             #the title on 32P has a mix-mash of crap...ignore everything after cbz/cbr to cleanit
-            ctitle = tor['Title'].find('cbr')
-            if ctitle == 0:
-                ctitle = tor['Title'].find('cbz')
-                if ctitle == 0:
-                    ctitle = tor['Title'].find('none')
-                    if ctitle == 0:
-                        logger.fdebug('cannot determine title properly - ignoring for now.')
-                        continue
-            cttitle = tor['Title'][:ctitle]
+            #ctitle = torTITLE.find('cbr')
+            #if ctitle == 0:
+            #    ctitle = torTITLE.find('cbz')
+            #    if ctitle == 0:
+            #        ctitle = torTITLE.find('none')
+            #        if ctitle == 0:
+            #            logger.fdebug('cannot determine title properly - ignoring for now.')
+            #            continue
+            #cttitle = torTITLE[:ctitle]
 
-            if tor['Site'] == '32P':
-                st_pub = rebuiltline.find('(')
-                if st_pub < 2 and st_pub != -1:
-                    st_end = rebuiltline.find(')')
-                    rebuiltline = rebuiltline[st_end +1:]
+#            if tor['Site'] == '32P':
+#                st_pub = rebuiltline.find('(')
+#                if st_pub < 2 and st_pub != -1:
+#                    st_end = rebuiltline.find(')')
+#                    rebuiltline = rebuiltline[st_end +1:]
 
             tortheinfo.append({
-                          'title':   rebuiltline, #cttitle,
+                          'title':   torTITLE, #cttitle,
                           'link':    tor['Link'],
                           'pubdate': tor['Pubdate'],
                           'site':    tor['Site'],
@@ -696,20 +762,24 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
     filename = re.sub(' ', '_', filename)
     filename += "_" + str(issue) + "_" + str(seriesyear)
 
-    if linkit[-7:] != "torrent": # and site != "KAT":
+    if linkit[-7:] != "torrent":
         filename += ".torrent"
-
-    if mylar.TORRENT_LOCAL and mylar.LOCAL_WATCHDIR is not None:
-
-        filepath = os.path.join(mylar.LOCAL_WATCHDIR, filename)
-        logger.fdebug('filename for torrent set to : ' + filepath)
-    elif mylar.TORRENT_SEEDBOX and mylar.SEEDBOX_WATCHDIR is not None:
+    if any([mylar.USE_UTORRENT, mylar.USE_RTORRENT, mylar.USE_TRANSMISSION,mylar.USE_DELUGE]):
         filepath = os.path.join(mylar.CACHE_DIR, filename)
         logger.fdebug('filename for torrent set to : ' + filepath)
-    else:
-        logger.error('No Local Watch Directory or Seedbox Watch Directory specified. Set it and try again.')
-        return "fail"
+        
+    elif mylar.USE_WATCHDIR:
+        if mylar.TORRENT_LOCAL and mylar.LOCAL_WATCHDIR is not None:
+            filepath = os.path.join(mylar.LOCAL_WATCHDIR, filename)
+            logger.fdebug('filename for torrent set to : ' + filepath)
+        elif mylar.TORRENT_SEEDBOX and mylar.SEEDBOX_WATCHDIR is not None:
+            filepath = os.path.join(mylar.CACHE_DIR, filename)
+            logger.fdebug('filename for torrent set to : ' + filepath)
+        else:
+            logger.error('No Local Watch Directory or Seedbox Watch Directory specified. Set it and try again.')
+            return "fail"
 
+    cf_cookievalue = None
     if site == '32P':
         url = 'https://32pag.es/torrents.php'
 
@@ -739,6 +809,10 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
                 logger.fdebug('[32P-AUTHENTICATION] 32P (Auth Mode) Authentication enabled. Keys have not been established yet, attempting to gather.')
                 feed32p = auth32p.info32p(reauthenticate=True)
                 feedinfo = feed32p.authenticate()
+                if feedinfo == "disable":
+                    mylar.ENABLE_32P = 0
+                    mylar.config_write()
+                    return "fail"
                 if mylar.PASSKEY_32P is None or mylar.AUTHKEY_32P is None or mylar.KEYS_32P is None:
                     logger.error('[RSS] Unable to sign-on to 32P to validate settings and initiate download sequence. Please enter/check your username password in the configuration.')
                     return "fail"
@@ -753,30 +827,67 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
         headers = None #{'Accept-encoding': 'gzip',
                        # 'User-Agent':      str(mylar.USER_AGENT)}
 
-    elif site == 'KAT':
-        stfind = linkit.find('?')
-        if stfind == -1:
-            kat_referrer = helpers.torrent_create('KAT', linkit)
+    elif site == 'TPSE':
+        url = helpers.torrent_create('TPSE', linkit)
+
+        if url.startswith('https'):
+            tpse_referrer = 'https://torrentproject.se/'
         else:
-            kat_referrer = linkit[:stfind]
+            tpse_referrer = 'http://torrentproject.se/'
 
-        #logger.fdebug('KAT Referer set to :' + kat_referrer)
+        try:
+            scraper = cfscrape.create_scraper()
+            cf_cookievalue, cf_user_agent = scraper.get_tokens(url)
+            headers = {'Accept-encoding': 'gzip',
+                       'User-Agent':       cf_user_agent}
 
-        headers = {'Accept-encoding': 'gzip',
-                   'User-Agent':      str(mylar.USER_AGENT)}
-                   #'Referer': kat_referrer}
+        except Exception, e:
+            return "fail"
 
-        url = helpers.torrent_create('KAT', linkit)
+        logger.fdebug('Grabbing torrent from url:' + str(url))
 
         payload = None
+        verify = False
+
+    elif site == 'DEM':
+        url = helpers.torrent_create('DEM', linkit)
+
+        if url.startswith('https'):
+            dem_referrer = 'https://www.dnoid.me/files/download/'
+        else:
+            dem_referrer = 'http://www.dnoid.me/files/download/'
+
+        headers = {'Accept-encoding': 'gzip',
+                   'User-Agent':      str(mylar.USER_AGENT),
+                   'Referer':         dem_referrer}
+
+        logger.fdebug('Grabbing torrent from url:' + str(url))
+
+        payload = None
+        verify = False
+
+    elif site == 'WWT':
+        url = helpers.torrent_create('WWT', linkit)
+
+        if url.startswith('https'):
+            wwt_referrer = 'https://worldwidetorrents.eu'
+        else:
+            wwt_referrer = 'http://worldwidetorrent.eu'
+
+        headers = {'Accept-encoding': 'gzip',
+                   'User-Agent':      str(mylar.USER_AGENT),
+                   'Referer':         wwt_referrer}
+
+        logger.fdebug('Grabbing torrent [id:' + str(linkit) + '] from url:' + str(url))
+
+        payload = {'id':   linkit}
         verify = False
 
     else:
         headers = {'Accept-encoding': 'gzip',
                    'User-Agent':      str(mylar.USER_AGENT)}
-                   #'Referer': kat_referrer}
 
-        url = linkit #helpers.torrent_create('TOR', linkit)
+        url = linkit
 
         payload = None
         verify = False
@@ -785,7 +896,7 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
         #32P throws back an insecure warning because it can't validate against the CA. The below suppresses the message just for 32P instead of being displayed.
         #disable SSL warnings - too many 'warning' messages about invalid certificates
         try:
-            from lib.requests.packages.urllib3 import disable_warnings
+            from requests.packages.urllib3 import disable_warnings
             disable_warnings()
         except ImportError:
             #this is probably not necessary and redudant, but leaving in for the time being.
@@ -799,40 +910,73 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
                 return "fail"
 
     try:
-        r = requests.get(url, params=payload, verify=verify, stream=True, headers=headers)
+        scraper = cfscrape.create_scraper()
+        if cf_cookievalue:
+            r = scraper.get(url, params=payload, cookies=cf_cookievalue, verify=verify, stream=True, headers=headers)
+        else:
+            r = scraper.get(url, params=payload, verify=verify, stream=True, headers=headers)
+        #r = requests.get(url, params=payload, verify=verify, stream=True, headers=headers)
 
     except Exception, e:
-        logger.warn('Error fetching data from %s: %s' % (site, e))
+        logger.warn('Error fetching data from %s (%s): %s' % (site, url, e))
         if site == '32P':
+            logger.info('[TOR2CLIENT-32P] Retrying with 32P')
             if mylar.MODE_32P == 1:
-                logger.info('Attempting to re-authenticate against 32P and poll new keys as required.')
+                
+                logger.info('[TOR2CLIENT-32P] Attempting to re-authenticate against 32P and poll new keys as required.')
                 feed32p = auth32p.info32p(reauthenticate=True)
                 feedinfo = feed32p.authenticate()
+
+                if feedinfo == "disable":
+                    mylar.ENABLE_32P = 0
+                    mylar.config_write()
+                    return "fail"
+                
+                logger.debug('[TOR2CLIENT-32P] Creating CF Scraper')
+                scraper = cfscrape.create_scraper()
+
+                logger.debug('[TOR2CLIENT-32P] payload: %s \n verify %s \n headers %s \n', payload, verify, headers)
+                
                 try:
-                    r = requests.get(url, params=payload, verify=verify, stream=True, headers=headers)
+                    r = scraper.get(url, params=payload, verify=verify, allow_redirects=True)
                 except Exception, e:
-                    logger.warn('Error fetching data from %s: %s' % (site, e))
+                    logger.warn('[TOR2CLIENT-32P] Unable to GET %s (%s): %s' % (site, url, e))
                     return "fail"
             else:
-                logger.warn('[32P] Unable to authenticate using existing RSS Feed given. Make sure that you have provided a CURRENT feed from 32P')
+                logger.warn('[TOR2CLIENT-32P] Unable to authenticate using existing RSS Feed given. Make sure that you have provided a CURRENT feed from 32P')
                 return "fail"
         else:
+            logger.info('blah: ' + str(r.status_code))
             return "fail"
 
-    if str(r.status_code) == '403':
-        #retry with the alternate torrent link.
-        url = helpers.torrent_create('KAT', linkit, True)
-        try:
-            r = requests.get(url, params=payload, verify=verify, stream=True, headers=headers)
+    if any([site == 'TPSE', site == 'DEM', site == 'WWT']) and any([str(r.status_code) == '403', str(r.status_code) == '404', str(r.status_code) == '503']):
+        if str(r.status_code) != '503':
+            logger.warn('Unable to download from ' + site + ' [' + str(r.status_code) + ']')
+            #retry with the alternate torrent link.
+            url = helpers.torrent_create(site, linkit, True)
+            logger.fdebug('Trying alternate url: ' + str(url))
+            try:
+                r = requests.get(url, params=payload, verify=verify, stream=True, headers=headers)
 
-        except Exception, e:
-            return "fail"
+            except Exception, e:
+                return "fail"
+        else:
+            logger.warn('Cloudflare protection online for ' + site + '. Attempting to bypass...')
+            try:
+                scraper = cfscrape.create_scraper()
+                cf_cookievalue, cf_user_agent = cfscrape.get_cookie_string(url)
+                headers = {'Accept-encoding': 'gzip',
+                           'User-Agent':       cf_user_agent}
+                
+                r = scraper.get(url, verify=verify, cookies=cf_cookievalue, stream=True, headers=headers)
+            except Exception, e:
+                return "fail"
 
     if str(r.status_code) != '200':
         logger.warn('Unable to download torrent from ' + site + ' [Status Code returned: ' + str(r.status_code) + ']')
         return "fail"
 
-    if site == 'KAT':
+    if any([site == 'TPSE', site == 'DEM', site == 'WWT']):
         if r.headers.get('Content-Encoding') == 'gzip':
             buf = StringIO(r.content)
             f = gzip.GzipFile(fileobj=buf)
@@ -844,13 +988,59 @@ def torsend2client(seriesname, issue, seriesyear, linkit, site):
                 f.flush()
 
     logger.fdebug('[' + site + '] Saved torrent file to : ' + filepath)
+    if mylar.USE_UTORRENT:
+        uTC = utorrent.utorrentclient()
+        resp = uTC.addfile(filepath, filename)
+        return resp   #resp = pass / fail
 
-    if mylar.TORRENT_LOCAL:
-        return "pass"
+    elif mylar.USE_RTORRENT:
+        import test
+        rp = test.RTorrent()
+        torrent_info = rp.main(filepath=filepath)        
 
-    elif mylar.TORRENT_SEEDBOX:
-        tssh = ftpsshup.putfile(filepath, filename)
-        return tssh
+        logger.info(torrent_info)
+        if torrent_info:
+            return "pass"
+        else:
+            return "fail"
+
+    elif mylar.USE_TRANSMISSION:
+        try:
+            rpc = transmission.TorrentClient()
+            if not rpc.connect(mylar.TRANSMISSION_HOST, mylar.TRANSMISSION_USERNAME, mylar.TRANSMISSION_PASSWORD):
+                return "fail"
+            if rpc.load_torrent(filepath):
+                return "pass"
+            else:
+                return "fail"
+        except Exception as e:
+            logger.error(e)
+            return "fail"
+
+    elif mylar.USE_DELUGE:
+        try:
+            dc = deluge.TorrentClient()
+            if not dc.connect(mylar.DELUGE_HOST, mylar.DELUGE_USERNAME, mylar.DELUGE_PASSWORD):
+                return "fail"
+                logger.info('Not connected to Deluge! (rsscheck)')
+            else:
+                logger.info('Connected to Deluge! Will try to add torrent now! (rsscheck)')
+            if dc.load_torrent(filepath):
+                return "pass"
+            else:
+                return "fail"
+                logger.info('Unable to connect to Deluge (rsscheck)')
+        except Exception as e:
+            logger.error(e)
+            return "fail"
+            
+            
+    elif mylar.USE_WATCHDIR:
+        if mylar.TORRENT_LOCAL:
+            return "pass"
+        else:
+            tssh = ftpsshup.putfile(filepath, filename)
+            return tssh
 
 
 if __name__ == '__main__':

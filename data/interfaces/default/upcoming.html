@@ -8,17 +8,17 @@
 		<div id="subhead_menu">
 			<a href="#" id="menu_link_scan" onclick="doAjaxCall('forceSearch',$(this))" data-success="Checking for wanted issues successful" data-error="Error checking wanted issues">Force Check</a>
 		</div>
-	</div>	
+	</div>
 </%def>
 
 
 <%def name="body()">
-	
+
 	<div class="title">
 		<h1 class="clearfix"><img src="interfaces/default/images/icon_wanted.png" alt="Wanted Issues"/>Wanted Issues (${wantedcount})</h1>
 	</div>
 
-        <div id="checkboxControls" style="float: right; vertical-align: middle; margin: 3px; margin-top: -1px;">
+        <div id="checkboxControls" style="float: right; vertical-align: middle; margin: 5px 3px 3px 3px;">
           <div style="padding-bottom: 5px;">
             <label for="Wanted" class="checkbox inline Wanted"><input type="checkbox" id="Wanted" checked="checked" /> Wanted: <b>${isCounts['Wanted']}</b></label>
             %if mylar.UPCOMING_SNATCHED:
@@ -85,7 +85,7 @@
 		%endfor
 		</tbody>
 	</table>
-	
+
 	</form>
 	</div>
 
@@ -117,7 +117,7 @@
 		    <tbody>
                     %for upcome in upcoming:
 		   	    <tr class="gradeZ">
-			   	    <td id="comicname"><a href="comicDetails?ComicID=${upcome['ComicID']}">${upcome['DisplayComicName']}</a></td>
+			   	    <td id="comicname"><a href="comicDetails?ComicID=${upcome['ComicID']}">${upcome['ComicName']}</a></td>
 				    <td id="issuenumber">${upcome['IssueNumber']}</td>
 				    <td id="reldate">${upcome['IssueDate']}</td>
 				    <td id="status">${upcome['Status']}</td>
@@ -131,12 +131,14 @@
 	</div>
         </div>
         <div id="tabs-2">
+           <a name="upcoming_nodata"></a>
            <a id="menu_link_edit" href="future_check">Force Check Availability</a>
            <div class="table_wrapper">
                 <table class="display_no_select" id="upcoming_table">
                 %if future_nodata_upcoming:
                     <thead>
                         <tr>
+                                <th id="delcolumn"></th>
                                 <th id="comicname">Comic</th>
                                 <th id="issuenumber">Issue</th>
                                 <th id="reldate">Release Date</th>
@@ -146,6 +148,9 @@
                 <tbody>
                     %for f_nodata in future_nodata_upcoming:
                             <tr class="gradeZ">
+                                    <td id="delcolumn">
+                                         <a href="upcoming#upcoming_nodata" title="Delete series from auto-Want list" onclick="doAjaxCall('removeautowant?comicname=${f_nodata['ComicName'] |u}&release=${f_nodata['IssueDate']}',$(this),'table')" data-success="${f_nodata['ComicName']} has been removed from the auto-want list"><img src="interfaces/default/images/skipped_icon.png" height="25" width="25" class="highqual" /></a>
+                                    </td>
                                     %if f_nodata['ComicID'] is not None:
                                         <td id="comicname"><a href="comicDetails?ComicID=${f_nodata['ComicID']}">${f_nodata['ComicName']}</a></td>
                                     %else:
@@ -179,7 +184,7 @@
                 <tbody>
                     %for f_upcome in futureupcoming:
                             <tr class="gradeZ">
-                                    <td id="comicname">${f_upcome['DisplayComicName']}</td>
+                                    <td id="comicname">${f_upcome['ComicName']}</td>
                                     <td id="issuenumber">${f_upcome['IssueNumber']}</td>
                                     <td id="reldate">${f_upcome['IssueDate']}</td>
                                     <td id="status">${f_upcome['Status']}</td>
@@ -236,7 +241,7 @@
             });
         }
 
-	
+
 	function initThisPage() {
                 $(function() {
                         $( "#tabs" ).tabs();
@@ -251,7 +256,7 @@
 		initActions();
 	}
 	$(document).ready(function() {
-		initThisPage();		
+		initThisPage();
 	});
 	</script>
 </%def>
